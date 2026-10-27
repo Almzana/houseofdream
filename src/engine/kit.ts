@@ -54,12 +54,15 @@ export function add(g: G, geo: THREE.BufferGeometry, mat: M, x: number, y: numbe
 /** Rounded box centred at (x,y,z). */
 export function rb(g: G, w: number, h: number, d: number, r: number, mat: M, x: number, y: number, z: number) {
   r = Math.min(r, w / 2 - 0.001, h / 2 - 0.001, d / 2 - 0.001);
-  return add(g, r > 0.002 ? new RoundedBoxGeometry(w, h, d, 3, r) : new THREE.BoxGeometry(w, h, d), mat, x, y, z);
+  return add(g, r > 0.002 ? new RoundedBoxGeometry(w, h, d, 2, r) : new THREE.BoxGeometry(w, h, d), mat, x, y, z);
 }
 export function cy(g: G, rt: number, rbot: number, h: number, mat: M, x: number, y: number, z: number, seg = 40) {
+  // smooth enough at room scale; fewer triangles to shade and to shadow
+  seg = Math.max(8, Math.round(seg * 0.6));
   return add(g, new THREE.CylinderGeometry(rt, rbot, h, seg), mat, x, y, z);
 }
 export function lathe(g: G, prof: [number, number][], mat: M, x: number, y: number, z: number, seg = 64) {
+  seg = Math.max(12, Math.round(seg * 0.55));
   return add(g, new THREE.LatheGeometry(prof.map((p) => new THREE.Vector2(p[0], p[1])), seg), mat, x, y, z);
 }
 export function tube(g: G, points: [number, number, number][], r: number, mat: M) {

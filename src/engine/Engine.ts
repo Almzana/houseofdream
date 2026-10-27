@@ -17,7 +17,7 @@ import { kelvinRGB } from '../lib/kelvin';
 import { buildModel, disposeModel } from './models';
 import { setAnisotropy, surfaceSet } from './textures';
 import { ctx2d, mkCanvas } from './canvas';
-import { LOW, buildStructure, shadowProxy, type Structure, type WallView } from './structure';
+import { buildStructure, shadowProxy, type Structure, type WallView } from './structure';
 import { Walker } from './walk';
 import { BuildView, type BuildPick } from './buildview';
 import { construct, type Layer } from '../lib/construction';
@@ -52,6 +52,8 @@ interface ItemView {
   lampPos?: THREE.Vector3;
   lampAim?: THREE.Vector3;
   glow?: THREE.MeshStandardMaterial[];
+  /** stands inside the house (not in the garden, carport or on a balcony) */
+  indoor?: boolean;
 }
 /** A light source as data; the light pool turns the most relevant ones into real lights. */
 interface Lamp {
@@ -307,7 +309,7 @@ export class Engine {
     fog.color.copy(this.nightBg).lerp(new THREE.Color(low > 0.2 ? '#aebdc4' : '#d9a988'), day);
     this.sky.visible = sinE > -0.12;
     this.scene.background = this.sky.visible ? null : this.nightBg;
-    this.renderer.toneMappingExposure = 0.9 + (1 - day) * 0.25;
+    this.exposureDirty = true;
     this.night = sinE < 0.06;
     this.nightness = 1 - day;
     this.applyNight();
@@ -354,7 +356,7 @@ export class Engine {
       const l = new THREE.PointLight(0xffffff, 0, 8, 2);
       if (i < POOL_POINT_SHADOWS) {
         l.castShadow = true;
-        l.shadow.mapSize.set(256, 256);
+        l.shadow.mapSize.set(512, 512);
         l.shadow.bias = -0.003;
         l.shadow.camera.near = 0.08;
       }
@@ -430,7 +432,9 @@ export class Engine {
       const color = new THREE.Color().setRGB(r / 255, g / 255, b / 255, THREE.SRGBColorSpace);
       for (const m of v.glow ?? []) {
         m.emissive.copy(color);
-        m.emissiveIntensity = on ? (m.userData.glow as number) * Math.min(2, lm / spec.lm) : 0;
+        // a lit shade or diffuser is far brighter than the room it lights: with the eye adapted to
+        // night-time levels it should read as glowing, not as beige cloth
+        m.emissiveIntensity = on ? (m.userData.glow as number) * Math.min(2, lm / spec.lm) * (1 + 3.5 * this.nightness) : 0;
       }
       if (!on || !v.lampPos) return;
       const room = this.house.rooms.find((o) => !o.outdoor && lvl(o) === lvl(v.item) && inRoom(o, v.item.x, v.item.z));
@@ -446,6 +450,7 @@ export class Engine {
     // rooms without any lamp of their own get a plain ceiling light at night
     if (this.night) for (const rl of this.roomLamps) if (!lit.has(rl.id)) this.lamps.push({ ...rl, power: 1600 * k });
     this.assignPool(true);
+    this.exposureDirty = true;
     if (this.pt) this.buildPtLights();
     this.invalidate();
   }
@@ -510,6 +515,49 @@ export class Engine {
   }
 
   private nightness = 0;
+
+  /* -------------------------------------------------------- auto exposure */
+  // Eyes and cameras adapt: by day the sun sets the exposure; at night it follows how much lamp
+  // light reaches what you are looking at, so walking up to a lamp doesn't blow the picture out
+  // and a dim corner isn't pitch black. Worked out from the lamps themselves (no GPU read-back).
+  private exposure = 0.9;
+  private exposureDirty = true;
+  private exposureTarget = 0.9;
+
+  /** Light reaching a point from the lamps (same units as the lights' intensity). */
+  private lampIlluminance(p: THREE.Vector3) {
+    let e = 0;
+    const d = new THREE.Vector3();
+    for (const l of this.lamps) {
+      if (l.power <= 0 || !this.levelVisible(l.level)) continue;
+      d.subVectors(p, l.pos);
+      const r2 = d.lengthSq() + 0.3;
+      // no beam test: a smooth estimate keeps the exposure from pumping as the view moves
+      const I = l.kind === 'spot' ? l.power / (2 * Math.PI) : l.power / (4 * Math.PI);
+      e += I / r2;
+    }
+    return e;
+  }
+
+  private adaptExposure(dt: number) {
+    if (this.exposureDirty || this.dirty) {
+      this.exposureDirty = false;
+      const focus = this.walker ? this.camera.position : this.controls.target;
+      const night = THREE.MathUtils.clamp(11 / (this.lampIlluminance(focus) + 4), 0.36, 1.05);
+      this.exposureTarget = THREE.MathUtils.lerp(0.9, night, smooth(0.25, 0.9, this.nightness));
+    }
+    if (Math.abs(this.exposure - this.exposureTarget) < 0.002) {
+      if (this.renderer.toneMappingExposure !== this.exposureTarget) {
+        this.exposure = this.renderer.toneMappingExposure = this.exposureTarget;
+        return true;
+      }
+      return false;
+    }
+    // about a second to adapt, like an eye
+    this.exposure = THREE.MathUtils.damp(this.exposure, this.exposureTarget, 4, dt || 0.016);
+    this.renderer.toneMappingExposure = this.exposure;
+    return true;
+  }
 
   /* ------------------------------------------------------- shadow cache */
   private shadowDirty = true;
@@ -683,8 +731,16 @@ export class Engine {
       const mats = m.material as THREE.Material[];
       const parts = g.groups.map((gr) => {
         const sub = new THREE.BufferGeometry();
-        for (const [k, a] of Object.entries(g.attributes)) sub.setAttribute(k, a);
-        sub.setIndex(Array.from(g.index!.array.slice(gr.start, gr.start + gr.count)));
+        if (g.index) {
+          for (const [k, a] of Object.entries(g.attributes)) sub.setAttribute(k, a);
+          sub.setIndex(Array.from(g.index.array.slice(gr.start, gr.start + gr.count)));
+        } else {
+          // merged (non-indexed) geometry: the group is a vertex range
+          for (const [k, a] of Object.entries(g.attributes)) {
+            const b = a as THREE.BufferAttribute;
+            sub.setAttribute(k, new THREE.BufferAttribute(b.array.slice(gr.start * b.itemSize, (gr.start + gr.count) * b.itemSize), b.itemSize));
+          }
+        }
         const p = new THREE.Mesh(sub, mats[gr.materialIndex ?? 0]);
         p.position.copy(m.position);
         p.quaternion.copy(m.quaternion);
@@ -862,6 +918,7 @@ export class Engine {
     if (added) this.schedulePrewarm();
     this.buildRoomLights();
     this.placeCeilingItems();
+    this.items.forEach((v) => (v.indoor = !!h.rooms.find((r) => !r.outdoor && lvl(r) === lvl(v.item) && inRoom(r, v.item.x, v.item.z)) && catalogById.get(v.item.t)?.mount !== 'wall'));
     this.items.forEach((v) => this.syncLight(v));
     if (added) this.applyNight();
     else this.applyLights();
@@ -1718,6 +1775,7 @@ export class Engine {
       if (this.swingDoors(dt)) this.dirty = true;
       if (this.dirty) this.walker.apply(this.camera);
     } else if (!this.photo && this.controls.update()) this.dirty = true;
+    if (this.adaptExposure(dt)) this.dirty = true;
     if (this.pt) {
       // path tracing: keep adding samples; any camera move starts the picture over
       if (this.dirty) this.pt.updateCamera();
@@ -1742,6 +1800,9 @@ export class Engine {
     const cam = this.camera.position;
     const looking = new THREE.Spherical().setFromVector3(cam.clone().sub(this.controls.target));
     const building = this.mode === 'build' && !!this.build;
+    // seen from outside and far off, what is inside the house is hidden by walls and roof: don't draw it
+    const far = this.mode === 'outside' && !this.photo && !this.walker;
+    const hiddenInside = (p: THREE.Vector3) => far && cam.distanceToSquared(p) > 225;
     const inside = this.mode === 'inside' && !this.photo;
     const AL = this.level;
     const showLevel = (l: number) => !inside || l <= AL;
@@ -1787,16 +1848,9 @@ export class Engine {
         }
         wv.group.visible = !hide;
         if (low || hide) this.lowWalls.add(wv);
-        for (const p of wv.pieces) {
-          if (!low) {
-            p.mesh.visible = true;
-            p.mesh.scale.y = 1;
-          } else if (p.y0 >= LOW) p.mesh.visible = false;
-          else {
-            p.mesh.visible = true;
-            p.mesh.scale.y = Math.min(1, (LOW - p.y0) / p.h);
-          }
-        }
+        wv.full.visible = !low;
+        wv.low.visible = low;
+        if (!wv.out && hiddenInside(wv.centre)) wv.group.visible = false;
       }
       for (const [l, g] of st.extras) {
         g.visible = showLevel(l);
@@ -1811,6 +1865,7 @@ export class Engine {
     this.items.forEach((v) => {
       const wv = this.wallOf.get(v.item.id);
       v.group.visible = building ? this.buildFurniture && this.buildExplode < 0.02 : showLevel(lvl(v.item)) && !(wv && this.lowWalls.has(wv) && !this.photo);
+      if (v.group.visible && v.indoor && hiddenInside(v.group.position)) v.group.visible = false;
       // ceiling fixtures would float in mid-air when looking down into a roofless room
       if (v.group.visible && inside && catalogById.get(v.item.t)?.mount === 'ceiling') v.group.visible = cam.y < v.group.position.y + 2.7;
     });
@@ -1825,7 +1880,8 @@ export class Engine {
     if (this.shadowDirty && r.shadowMap.enabled) this.updateShadows();
     // while moving draw straight to screen; ambient occlusion + bloom go on the settled frame
     if (this.fx && !this.photo && full) {
-      this.bloom.strength = 0.15 + 0.25 * this.nightness;
+      // a soft halo round bright lamps, not a haze over the room
+      this.bloom.strength = 0.08 + 0.1 * this.nightness;
       this.composer.render();
     } else r.render(this.scene, this.camera);
     if (!this.photo && !this.walker) {

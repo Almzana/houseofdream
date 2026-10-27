@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { catalogById } from '../data/catalog';
+import { mergeStatic } from './merge';
 
 /** Build a furniture model; meshes cast/receive shadows unless flagged. */
 export function buildModel(t: string, color: string): THREE.Group {
@@ -14,6 +15,8 @@ export function buildModel(t: string, color: string): THREE.Group {
       m.receiveShadow = true;
     }
   });
+  // a sofa is ~20 rounded boxes: draw it in a few calls instead
+  mergeStatic(g);
   return g;
 }
 

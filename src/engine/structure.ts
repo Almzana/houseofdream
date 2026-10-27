@@ -11,20 +11,19 @@ import { OVERHANG, PART_T, WALL_T, gatesOf, inRoom, levelY, levelsOf, lotOf, ope
 import { isExterior, wallPieces, wallSegments, type Segment } from '../lib/walls';
 import { buildModel } from './models';
 import { surfaceSet } from './textures';
+import { mergeShadowCasters, mergeStatic } from './merge';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 /** height walls are cut down to in the "low" cutaway */
 export const LOW = 0.38;
 
-export interface Piece {
-  mesh: THREE.Mesh;
-  y0: number;
-  h: number;
-}
 export interface WallView {
   seg: Segment;
   level: number;
   group: THREE.Group;
-  pieces: Piece[];
+  /** the wall run as one mesh (one draw per material), and its cut-down version for the cutaway */
+  full: THREE.Mesh;
+  low: THREE.Mesh;
   /** outward direction for exterior walls, null for partitions */
   out: THREE.Vector3 | null;
   centre: THREE.Vector3;
@@ -69,6 +68,40 @@ const lv = (r: Room) => r.level ?? 0;
 
 function surfMat(s: Surface, color: string, extra: THREE.MeshStandardMaterialParameters = {}, rx?: number, ry?: number) {
   return new THREE.MeshStandardMaterial({ ...surfaceSet(s, rx, ry), color, roughness: 1, envMapIntensity: 0.5, ...extra });
+}
+
+type Part = { geo: THREE.BufferGeometry; mats: THREE.Material | THREE.Material[] };
+
+/** Many boxes (with a material per face) → one mesh with one draw group per material. */
+function assemble(parts: Part[]): THREE.Mesh {
+  const byMat = new Map<THREE.Material, THREE.BufferGeometry[]>();
+  const take = (m: THREE.Material, g: THREE.BufferGeometry) => byMat.set(m, [...(byMat.get(m) ?? []), g]);
+  for (const p of parts) {
+    const flat = p.geo.index ? p.geo.toNonIndexed() : p.geo;
+    if (Array.isArray(p.mats)) {
+      for (const gr of p.geo.groups) {
+        const sub = new THREE.BufferGeometry();
+        for (const k of ['position', 'normal', 'uv']) {
+          const a = flat.attributes[k] as THREE.BufferAttribute;
+          sub.setAttribute(k, new THREE.BufferAttribute(a.array.slice(gr.start * a.itemSize, (gr.start + gr.count) * a.itemSize), a.itemSize));
+        }
+        take(p.mats[gr.materialIndex ?? 0], sub);
+      }
+    } else {
+      const sub = new THREE.BufferGeometry();
+      for (const k of ['position', 'normal', 'uv']) sub.setAttribute(k, flat.attributes[k]);
+      take(p.mats, sub);
+    }
+    p.geo.dispose();
+  }
+  const mats = [...byMat.keys()];
+  if (!mats.length) return new THREE.Mesh(new THREE.BufferGeometry(), []);
+  const perMat = mats.map((m) => mergeGeometries(byMat.get(m)!, false)!);
+  const geo = mergeGeometries(perMat, true)!;
+  perMat.forEach((g) => g.dispose());
+  const mesh = new THREE.Mesh(geo, mats);
+  mesh.receiveShadow = true;
+  return mesh;
 }
 
 /** UVs in metres so patterns line up across pieces and around openings. */
@@ -165,7 +198,8 @@ export function buildStructure(house: House): Structure {
         g.position.set(s.c, levelY(l), 0);
         g.rotation.y = Math.PI / 2;
       }
-      const pieces: Piece[] = [];
+      const fullParts: Part[] = [];
+      const lowParts: Part[] = [];
       for (let [a, b, y0, y1] of wallPieces(seg)) {
         if (ext0 && Math.abs(a - s.s0) < 1e-3) a -= WALL_T;
         if (ext1 && Math.abs(b - s.s1) < 1e-3) b += WALL_T;
@@ -175,26 +209,35 @@ export function buildStructure(house: House): Structure {
         const geo = new THREE.BoxGeometry(lb - la, ph, t1 - t0);
         geo.translate((la + lb) / 2, ph / 2, (t0 + t1) / 2);
         metreUV(geo, y0);
-        const m = new THREE.Mesh(geo, mats);
-        m.position.y = y0;
-        m.castShadow = exterior;
-        m.receiveShadow = true;
+        fullParts.push({ geo: geo.clone().translate(0, y0, 0), mats });
+        if (y0 < LOW) lowParts.push({ geo: geo.clone().scale(1, Math.min(1, (LOW - y0) / ph), 1).translate(0, y0, 0), mats });
+        geo.dispose();
         if (y0 < 1e-3) {
           for (const [side, z] of [[s.plus, t1 + 0.006], [s.minus, t0 - 0.006]] as const) {
             if (!side) continue;
-            const k = box(lb - la, 0.08, 0.012, skirt, (la + lb) / 2, 0.04, z, m);
-            k.receiveShadow = true;
+            const k = new THREE.BoxGeometry(lb - la, 0.08, 0.012).translate((la + lb) / 2, 0.04, z);
+            fullParts.push({ geo: k, mats: skirt });
+            lowParts.push({ geo: k.clone(), mats: skirt });
           }
         }
-        g.add(m);
-        pieces.push({ mesh: m, y0, h: ph });
       }
+      const full = assemble(fullParts);
+      const low = assemble(lowParts);
+      low.visible = false;
+      g.add(full, low);
       group.add(g);
-      shadows.add(shadowProxy(g));
+      // the shadow stand-in is always the full-height wall
+      const pg = new THREE.Group();
+      pg.position.copy(g.position);
+      pg.rotation.copy(g.rotation);
+      const pm = new THREE.Mesh(full.geometry, reveal);
+      pm.castShadow = true;
+      pg.add(pm);
+      shadows.add(shadowProxy(pg));
       const mid = (s.s0 + s.s1) / 2;
       const centre = s.axis === 'x' ? new THREE.Vector3(mid, levelY(l) + H / 2, s.c) : new THREE.Vector3(s.c, levelY(l) + H / 2, mid);
       const out = o === 0 ? null : s.axis === 'x' ? new THREE.Vector3(0, 0, o) : new THREE.Vector3(o, 0, 0);
-      walls.push({ seg, level: l, group: g, pieces, out, centre });
+      walls.push({ seg, level: l, group: g, full, low, out, centre });
     }
   }
 
@@ -266,8 +309,14 @@ export function buildStructure(house: House): Structure {
 
   /* ---------------- site ---------------- */
   const site = buildSite(house, ext, extMat);
+  mergeStatic(site);
+  mergeStatic(roof);
   group.add(site);
 
+  // every shadow stand-in becomes one mesh: the whole building shadows in a single draw call
+  const casters = mergeShadowCasters(shadows, SHADOW_LAYER);
+  shadows.clear();
+  if (casters) shadows.add(casters);
   group.add(shadows);
   return { group, walls, roof, site, extras, segs, top, shadows, roomMats };
 }
