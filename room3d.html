@@ -1,0 +1,941 @@
+<title>ห้องในฝัน 3D</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jost:wght@300;400;500;600&family=Montserrat:wght@600;700&family=Prompt:wght@300;400;500&display=swap">
+<style>
+/* Layout: architecture-studio workbench — dark taupe header band, live 3D stage, square-edged material board; stacks on phones */
+:root{
+  --bg:#f7f6f3; --panel:#ffffff; --ink:#161514; --muted:#6f6861; --line:#e3dfd9;
+  --accent:#8c6e52; --accent-ink:#ffffff; --chip:#f2efea; --scene:#e8e5e0; --warn:#a2402e; --handle:#d9b57c;
+  --head1:#5a514a; --head2:#2a2623; --head-ink:#ffffff;
+  --f-display:"Jost","Prompt",system-ui,sans-serif;
+  --f-ui:"Montserrat","Prompt",system-ui,sans-serif;
+  --f-body:"Prompt",system-ui,sans-serif;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#121110; --panel:#1a1817; --ink:#ece8e2; --muted:#a39b92; --line:#2e2a27;
+    --accent:#c4a07a; --accent-ink:#151413; --chip:#23201e; --scene:#1d1b19; --warn:#e07a62; --handle:#d9b57c;
+    --head1:#3b3531; --head2:#161412; --head-ink:#f3eee8;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#121110; --panel:#1a1817; --ink:#ece8e2; --muted:#a39b92; --line:#2e2a27;
+  --accent:#c4a07a; --accent-ink:#151413; --chip:#23201e; --scene:#1d1b19; --warn:#e07a62; --handle:#d9b57c;
+  --head1:#3b3531; --head2:#161412; --head-ink:#f3eee8;
+  color-scheme:dark;
+}
+html,body{height:100%}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-weight:300;font-size:14px;line-height:1.55}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+button,input{font:inherit;color:inherit}
+button{cursor:pointer}
+b,strong{font-weight:500}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+.app{height:100%;display:grid;grid-template-rows:auto minmax(0,1fr);gap:14px;padding-block:12px;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.bar{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px 20px;padding:14px 20px;
+  background:linear-gradient(180deg,var(--head1),var(--head2));color:var(--head-ink)}
+.brand{display:flex;align-items:baseline;gap:16px;flex-wrap:wrap;min-width:0}
+.brand h1{font-family:var(--f-display);font-weight:300;font-size:20px;letter-spacing:.32em;text-transform:uppercase;margin:0}
+.dims{font-family:var(--f-display);font-size:13px;letter-spacing:.04em;opacity:.8;font-variant-numeric:tabular-nums}
+.nav{display:flex;flex-wrap:wrap;gap:4px 18px}
+.nav button{border:0;background:transparent;color:var(--head-ink);font-family:var(--f-ui);font-weight:700;font-size:12px;letter-spacing:.1em;
+  text-transform:uppercase;padding:6px 0;border-bottom:1px solid transparent;opacity:.72}
+.nav button[aria-pressed="true"]{opacity:1;border-bottom-color:currentColor}
+
+.work{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:14px;min-height:0}
+.stage{position:relative;overflow:hidden;background:var(--scene);min-height:0}
+.stage canvas{position:absolute;left:0;top:0;width:100%;height:100%;display:block;touch-action:none}
+.hint{position:absolute;top:14px;left:14px;font-size:12px;color:var(--ink);background:color-mix(in srgb,var(--panel) 88%,transparent);
+  padding:5px 12px;pointer-events:none;max-width:calc(100% - 28px);letter-spacing:.02em}
+.err{padding:24px;color:var(--warn)}
+
+.floatbar{position:absolute;display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;
+  background:color-mix(in srgb,var(--panel) 94%,transparent);backdrop-filter:blur(10px);border:1px solid var(--line);padding:10px 12px}
+.selbar{left:14px;right:14px;bottom:14px}
+.photobar{top:14px;right:14px}
+.selbar .name{font-family:var(--f-display);font-weight:500;font-size:15px;letter-spacing:.06em}
+.selbar .price{font-family:var(--f-display);font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums}
+.grow{flex:1}
+.colors{display:flex;gap:6px;flex-wrap:wrap}
+.dot{width:24px;height:24px;border-radius:50%;border:2px solid var(--panel);box-shadow:0 0 0 1px var(--line);padding:0}
+.dot[aria-pressed="true"]{box-shadow:0 0 0 2px var(--accent)}
+.btn{border:1px solid var(--line);background:var(--panel);padding:7px 14px;font-family:var(--f-ui);font-weight:600;font-size:11px;letter-spacing:.1em;text-transform:uppercase}
+.btn:hover{border-color:var(--ink)}
+.btn.primary{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.btn.danger{color:var(--warn)}
+.btn.danger.armed{background:var(--warn);color:var(--panel);border-color:var(--warn)}
+.seg-group{display:flex;border:1px solid var(--line)}
+.seg{border:0;background:var(--panel);padding:7px 12px;font-family:var(--f-ui);font-weight:600;font-size:11px;letter-spacing:.08em;color:var(--muted)}
+.seg[aria-pressed="true"]{background:var(--ink);color:var(--bg)}
+kbd{font-family:var(--f-display);font-size:11px;border:1px solid var(--line);padding:0 4px;color:var(--muted)}
+
+/* corner-marking overlay */
+.calib{position:absolute;inset:0;background:var(--scene);z-index:5}
+.calib img{position:absolute;display:block;max-width:none;user-select:none;pointer-events:none}
+.calib svg{position:absolute;inset:0;width:100%;height:100%;touch-action:none}
+.calib .guide{stroke:var(--handle);stroke-width:1;stroke-dasharray:6 6;opacity:.8}
+.calib .edge{stroke:var(--handle);stroke-width:2.5;fill:color-mix(in srgb,var(--handle) 16%,transparent)}
+.calib .knob{fill:var(--handle);stroke:#161514;stroke-width:2;cursor:grab}
+.calib .knob.ceil{fill:#ffffff}
+.calib .hit{fill:transparent;cursor:grab}
+.calib text{font-family:var(--f-display);font-size:13px;font-weight:600;fill:#161514;pointer-events:none}
+.calibbar{left:14px;right:14px;bottom:14px}
+.calibbar p{margin:0;font-size:13px;flex:1 1 300px}
+.calibbar .msg{color:var(--warn)}
+.calibbar label{display:flex;align-items:center;gap:6px;font-size:13px}
+.calibbar input[type=number]{width:64px;border:1px solid var(--line);background:var(--panel);padding:4px 6px}
+
+.panel{display:flex;flex-direction:column;min-height:0;background:var(--panel);border:1px solid var(--line)}
+.tabs{display:grid;grid-template-columns:repeat(5,1fr);border-bottom:1px solid var(--line)}
+.tabs button{border:0;background:transparent;padding:13px 2px;font-size:13px;color:var(--muted);border-bottom:2px solid transparent;font-weight:400}
+.tabs button[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--ink)}
+.pane{overflow:auto;padding:18px;display:flex;flex-direction:column;gap:24px;flex:1;min-height:0}
+.sec{display:flex;flex-direction:column;gap:10px}
+.sec h2{font-family:var(--f-display);font-size:14px;font-weight:500;letter-spacing:.22em;text-transform:uppercase;margin:0;text-wrap:balance}
+.sec h3{font-family:var(--f-display);font-size:12px;font-weight:500;letter-spacing:.16em;text-transform:uppercase;color:var(--muted);margin:6px 0 0}
+.note{font-size:12.5px;color:var(--muted);margin:0}
+.steps{margin:0;padding-left:20px;font-size:13px;display:flex;flex-direction:column;gap:4px}
+
+.drop{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;text-align:center;border:1px dashed var(--muted);
+  padding:18px 12px;cursor:pointer;color:var(--muted);font-size:13px}
+.drop:hover,.drop.over{border-color:var(--ink);color:var(--ink)}
+.drop strong{color:var(--ink);font-family:var(--f-ui);font-weight:600;font-size:11px;letter-spacing:.12em;text-transform:uppercase}
+.photo{width:100%;display:block;max-height:160px;object-fit:cover}
+.picked{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.pick{display:flex;align-items:center;gap:8px;font-size:12.5px;background:var(--chip);padding:6px 8px}
+.pick i{width:22px;height:22px;border:1px solid var(--line);flex:none}
+.est{border-left:2px solid var(--accent);padding:6px 0 6px 12px;font-size:13px}
+.est b{font-family:var(--f-display);font-size:17px;font-weight:500;letter-spacing:.02em;font-variant-numeric:tabular-nums}
+
+.field{display:grid;grid-template-columns:78px minmax(0,1fr) 64px;align-items:center;gap:10px;font-size:13px}
+.field output{font-family:var(--f-display);font-size:13px;text-align:right;font-variant-numeric:tabular-nums}
+input[type=range]{width:100%;accent-color:var(--accent)}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+
+.swatches{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:10px}
+.sw{border:1px solid var(--line);background:var(--panel);padding:0;display:flex;flex-direction:column;text-align:left}
+.sw img{width:100%;aspect-ratio:1;max-width:100%;display:block;object-fit:cover}
+.sw span{font-size:12px;line-height:1.3;padding:6px 7px 2px}
+.sw small{font-family:var(--f-display);font-size:11px;color:var(--muted);padding:0 7px 7px;font-variant-numeric:tabular-nums}
+.sw[aria-pressed="true"]{border-color:var(--ink);box-shadow:0 0 0 1px var(--ink)}
+.paints{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.paints .dot{width:30px;height:30px}
+.paints input[type=color]{width:34px;height:34px;border:1px solid var(--line);padding:2px;background:var(--panel)}
+
+.catalog{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px}
+.item{border:1px solid var(--line);background:var(--panel);padding:10px 12px;text-align:left;display:flex;flex-direction:column;gap:1px}
+.item:hover{border-color:var(--ink)}
+.item b{font-weight:400;font-size:13.5px}
+.item small{font-family:var(--f-display);font-size:11.5px;color:var(--muted);font-variant-numeric:tabular-nums}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+
+/* bill of quantities */
+.boq{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:5px 14px;font-size:13px}
+.boq span:nth-child(even){text-align:right;font-family:var(--f-display);font-variant-numeric:tabular-nums;white-space:nowrap}
+.boq .sub{color:var(--muted);font-size:12px}
+.boq .hr{grid-column:1/-1;border-top:1px solid var(--line);margin:4px 0}
+.total{background:linear-gradient(180deg,var(--head1),var(--head2));color:var(--head-ink);padding:16px 18px;display:flex;flex-direction:column;gap:2px}
+.total small{font-family:var(--f-display);font-size:11px;letter-spacing:.22em;text-transform:uppercase;opacity:.75}
+.total b{font-family:var(--f-display);font-size:30px;font-weight:400;letter-spacing:.02em;font-variant-numeric:tabular-nums}
+.total span{font-size:12px;opacity:.8}
+
+@media (max-width:860px){
+  .app{height:auto;min-height:100%}
+  .work{grid-template-columns:minmax(0,1fr)}
+  .stage{height:min(62vh,520px)}
+  .pane{overflow:visible}
+  .hint{display:none}
+}
+@media (prefers-reduced-motion: reduce){*{transition:none!important}}
+</style>
+
+<div class="app">
+  <header class="bar">
+    <div class="brand">
+      <h1>ห้องในฝัน 3D</h1>
+      <span class="dims" id="dimsLabel"></span>
+    </div>
+    <nav class="nav" aria-label="มุมกล้อง">
+      <button id="viewPhoto" aria-pressed="false" hidden>มุมรูปถ่าย</button>
+      <button id="view3d" aria-pressed="true">มุม 3D</button>
+      <button id="viewTop" aria-pressed="false">มองจากบน</button>
+      <button id="autoRot" aria-pressed="false">หมุนรอบห้อง</button>
+    </nav>
+  </header>
+
+  <main class="work">
+    <div class="stage" id="stage">
+      <div class="hint" id="hint">ลากเพื่อหมุน · เลื่อนล้อเพื่อซูม · คลิกของแล้วลากเพื่อย้าย</div>
+
+      <div class="floatbar photobar" id="photobar" hidden>
+        <div class="seg-group" role="group" aria-label="แสดงผล">
+          <button class="seg" id="modeEmpty" aria-pressed="true">ห้องเปล่า</button>
+          <button class="seg" id="modeOrig" aria-pressed="false">รูปเดิม</button>
+        </div>
+        <button class="btn" id="recalib">แก้มุมห้อง</button>
+      </div>
+
+      <div class="floatbar selbar" id="selbar" hidden>
+        <span class="name" id="selName"></span>
+        <span class="price" id="selPrice"></span>
+        <div class="colors" id="selColors"></div>
+        <span class="grow"></span>
+        <button class="btn" id="rotBtn" title="หมุน (R)">หมุน 45°</button>
+        <button class="btn" id="dupBtn">ทำสำเนา</button>
+        <button class="btn danger" id="delBtn" title="ลบ (Delete)">ลบ</button>
+      </div>
+
+      <div class="calib" id="calib" hidden>
+        <img id="calibImg" alt="รูปห้องสำหรับกำหนดมุม">
+        <svg id="calibSvg" aria-label="จุดมุมห้อง"></svg>
+        <div class="floatbar calibbar">
+          <p><b>1, 2</b> = มุมพื้นชนผนังด้านใน (ซ้าย, ขวา) · <b>3, 4</b> = จุดบนเส้นพื้นชนผนังขวาและซ้าย ใกล้ขอบล่างของรูป · จุดขาว <b>5</b> = มุมเพดานเหนือจุด 1
+            <span class="msg" id="calibMsg"></span></p>
+          <label><input type="checkbox" id="estChk" checked> ประมาณขนาดห้องจากรูป</label>
+          <label title="ไม่ติ๊ก = จุด 3, 4 คือมุมห้องด้านหน้าจริง"><input type="checkbox" id="atDoor" checked> ยืนถ่ายที่ประตู</label>
+          <label for="camH">กล้องสูงจากพื้น <input type="number" id="camH" value="1.45" min="0.5" max="2.5" step="0.05"> ม.</label>
+          <button class="btn" id="calibCancel">ยกเลิก</button>
+          <button class="btn primary" id="calibGo">สร้างห้องเปล่า</button>
+        </div>
+      </div>
+    </div>
+
+    <aside class="panel">
+      <div class="tabs" role="tablist">
+        <button role="tab" data-tab="room" aria-selected="true">ห้อง</button>
+        <button role="tab" data-tab="floor" aria-selected="false">พื้น</button>
+        <button role="tab" data-tab="wall" aria-selected="false">ผนัง</button>
+        <button role="tab" data-tab="decor" aria-selected="false">ของแต่ง</button>
+        <button role="tab" data-tab="sum" aria-selected="false">สรุปงบ</button>
+      </div>
+
+      <section class="pane" id="pane-room">
+        <div class="sec">
+          <h2>ห้องจากรูปถ่าย</h2>
+          <ol class="steps">
+            <li>ยืนที่ประตู ถือมือถือระดับอก ใช้เลนส์ 1x ถ่ายให้เห็นพื้นและมุมผนัง</li>
+            <li>ลากจุดให้ตรงมุมพื้น 4 จุด และมุมเพดาน 1 จุด</li>
+            <li>ระบบประมาณขนาดห้อง ปูพื้นและผนังใหม่ทับของเดิม ได้ห้องเปล่าในมุมเดียวกับรูป</li>
+            <li>เลือกพื้น ผนัง และของแต่ง แล้วดูจำนวนวัสดุกับงบได้ที่แท็บสรุปงบ</li>
+          </ol>
+          <label class="drop" id="drop" for="photoInput">
+            <strong>ถ่ายรูป / เลือกรูปห้อง</strong>
+            หรือลากไฟล์รูปมาวางตรงนี้
+          </label>
+          <input type="file" id="photoInput" accept="image/*" hidden>
+          <div id="photoBox" hidden>
+            <img class="photo" id="photoThumb" alt="รูปห้องที่อัปโหลด">
+          </div>
+          <div class="picked" id="pickedBox" hidden>
+            <div class="pick"><i id="pickFloor"></i>สีพื้นเดิม</div>
+            <div class="pick"><i id="pickWall"></i>สีผนังเดิม</div>
+          </div>
+          <div class="row" id="photoActions" hidden>
+            <button class="btn" id="openCalib">กำหนดมุมห้อง</button>
+            <button class="btn" id="useColors">ใช้สีเดิมจากรูป</button>
+          </div>
+        </div>
+
+        <div class="sec">
+          <h2>ขนาดห้อง</h2>
+          <div class="est" id="sizeSrc"></div>
+          <div class="field"><label for="rw">กว้าง (1–2)</label><input type="range" id="rw" min="1.2" max="10" step="0.05"><output id="rwo"></output></div>
+          <div class="field"><label for="rd">ยาว (2–3)</label><input type="range" id="rd" min="1.2" max="10" step="0.05"><output id="rdo"></output></div>
+          <div class="field"><label for="rh">สูงฝ้า</label><input type="range" id="rh" min="2.2" max="4" step="0.05"><output id="rho"></output></div>
+          <div class="chips">
+            <button class="btn" data-preset="1.8,2.4,2.5">ห้องน้ำเล็ก</button>
+            <button class="btn" data-preset="2.2,2.8,2.6">ห้องน้ำ</button>
+            <button class="btn" data-preset="3.5,4,2.7">ห้องนอน</button>
+            <button class="btn" data-preset="4.2,5,2.7">ห้องนั่งเล่น</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="pane" id="pane-floor" hidden>
+        <div class="sec">
+          <h2>พื้น / กระเบื้อง</h2>
+          <div class="swatches" id="floorSw"></div>
+          <label class="drop" for="floorInput"><strong>อัปโหลดลายกระเบื้องของคุณ</strong>ถ่ายรูปแผ่นกระเบื้องตรงๆ ระบบจะปูซ้ำทั้งห้อง</label>
+          <input type="file" id="floorInput" accept="image/*" hidden>
+        </div>
+        <div class="sec">
+          <h2>ขนาดแผ่น</h2>
+          <div class="field"><label for="fs">ย่อ/ขยาย</label><input type="range" id="fs" min="0.5" max="2" step="0.05"><output id="fso"></output></div>
+        </div>
+      </section>
+
+      <section class="pane" id="pane-wall" hidden>
+        <div class="sec">
+          <h2>สีผนัง / สีกระเบื้อง</h2>
+          <div class="paints" id="paints"></div>
+        </div>
+        <div class="sec">
+          <h2>ผิวผนัง</h2>
+          <div class="swatches" id="wallSw"></div>
+        </div>
+      </section>
+
+      <section class="pane" id="pane-decor" hidden>
+        <div class="sec">
+          <h2>เพิ่มของเข้าห้อง</h2>
+          <h3>ห้องน้ำ</h3>
+          <div class="catalog" id="catalogBath"></div>
+          <h3>ห้องนั่งเล่น / ห้องนอน</h3>
+          <div class="catalog" id="catalogLiving"></div>
+          <p class="note">กดเพื่อวางกลางห้อง แล้วลากไปตำแหน่งที่ต้องการ กด <kbd>R</kbd> หมุน <kbd>Del</kbd> ลบ</p>
+        </div>
+        <div class="sec">
+          <div class="row"><span id="itemCount" class="note"></span><span class="grow"></span><button class="btn danger" id="clearBtn">ล้างของทั้งหมด</button></div>
+        </div>
+      </section>
+
+      <section class="pane" id="pane-sum" hidden>
+        <div class="total"><small>งบประมาณรวมโดยประมาณ</small><b id="sumTotal"></b><span id="sumTotalNote"></span></div>
+        <div class="sec"><h2>ขนาดห้อง</h2><div class="boq" id="sumRoom"></div></div>
+        <div class="sec"><h2>งานพื้น</h2><div class="boq" id="sumFloor"></div></div>
+        <div class="sec"><h2>งานผนัง</h2><div class="boq" id="sumWall"></div></div>
+        <div class="sec"><h2>ของแต่ง / สุขภัณฑ์</h2><div class="boq" id="sumItems"></div></div>
+        <p class="note">ราคาเป็นค่าประมาณจากราคาตลาดทั่วไปในไทย (วัสดุ + ค่าแรงช่าง) ใช้วางแผนเบื้องต้น ราคาจริงขึ้นกับแบรนด์ ร้าน และหน้างาน พื้นที่ผนังหักประตู 1 บาน (80×200 ซม.) และเผื่อเศษวัสดุ 10%</p>
+      </section>
+    </aside>
+  </main>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/environments/RoomEnvironment.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/geometries/RoundedBoxGeometry.js"></script>
+<script>
+/*POSE-START*/
+/* Camera recovery from 4 marked floor corners (pinhole model, principal point at image centre, image y down). */
+const vdot=(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2],vlen=a=>Math.sqrt(vdot(a,a)),vscale=(a,k)=>[a[0]*k,a[1]*k,a[2]*k],
+  vsub=(a,b)=>[a[0]-b[0],a[1]-b[1],a[2]-b[2]],vnorm=a=>vscale(a,1/vlen(a)),
+  vcross=(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];
+function solveH(src,dst){const A=[],b=[];for(let i=0;i<4;i++){const[a,c]=src[i],[u,v]=dst[i];
+    A.push([a,c,1,0,0,0,-u*a,-u*c]);b.push(u);A.push([0,0,0,a,c,1,-v*a,-v*c]);b.push(v);}
+  const n=8;for(let i=0;i<n;i++){let p=i;for(let r=i+1;r<n;r++)if(Math.abs(A[r][i])>Math.abs(A[p][i]))p=r;
+    [A[i],A[p]]=[A[p],A[i]];[b[i],b[p]]=[b[p],b[i]];if(Math.abs(A[i][i])<1e-12)return null;
+    for(let r=i+1;r<n;r++){const f=A[r][i]/A[i][i];for(let c=i;c<n;c++)A[r][c]-=f*A[i][c];b[r]-=f*b[i];}}
+  const x=new Array(n);for(let i=n-1;i>=0;i--){let s=b[i];for(let c=i+1;c<n;c++)s-=A[i][c]*x[c];x[i]=s/A[i][i];}
+  return x.every(isFinite)?x:null;}
+function cornersToPx(P,W,H){return P.slice(0,4).map(p=>[(p[0]-.5)*W,(p[1]-.5)*H]);}
+/* focal length from the right angle between the two floor edge directions; falls back to a typical phone main lens */
+function focalFromCorners(P,W,H){const Mx=Math.max(W,H),h=solveH([[-.5,-.5],[.5,-.5],[.5,.5],[-.5,.5]],cornersToPx(P,W,H));
+  if(h&&Math.abs(h[6]*h[7])>1e-14){const v=-(h[0]*h[1]+h[3]*h[4])/(h[6]*h[7]);if(v>0){const f=Math.sqrt(v);if(f>.4*Mx&&f<3*Mx)return f;}}
+  return .75*Mx;}
+const rect=(w,d)=>[[-w/2,-d/2],[w/2,-d/2],[w/2,d/2],[-w/2,d/2]];
+function poseFrom(P,W,H,src,f){const h=solveH(src,cornersToPx(P,W,H));if(!h)return null;
+  const k1=[h[0]/f,h[3]/f,h[6]],k2=[h[1]/f,h[4]/f,h[7]],k3=[h[2]/f,h[5]/f,1];
+  let lam=2/(vlen(k1)+vlen(k2));if(k3[2]*lam<0)lam=-lam;
+  const r1=vnorm(vscale(k1,lam));let r2=vscale(k2,lam);const t=vscale(k3,lam);
+  r2=vnorm(vsub(r2,vscale(r1,vdot(r2,r1))));const ry=vcross(r2,r1);
+  const C=[-vdot(r1,t),-vdot(ry,t),-vdot(r2,t)];if(!C.every(isFinite)||!(C[1]>0))return null;
+  return{f,r1,ry,r2,t,C};}
+/* room size: aspect from the metric rectangle, scale from the camera height, ceiling from point 5 */
+function estimateRoom(P,W,H,camH){const f=focalFromCorners(P,W,H);
+  const h=solveH([[-.5,-.5],[.5,-.5],[.5,.5],[-.5,.5]],cornersToPx(P,W,H));if(!h)return null;
+  const a=vlen([h[0]/f,h[3]/f,h[6]])/vlen([h[1]/f,h[4]/f,h[7]]);
+  const p1=poseFrom(P,W,H,rect(a,1),f);if(!p1)return null;const s=camH/p1.C[1],w=a*s,d=s;
+  const p=poseFrom(P,W,H,rect(w,d),f);if(!p)return null;let hh=2.6;
+  if(P[4]){const v5=(P[4][1]-.5)*H;let best=1e18;
+    for(let y=1.8;y<=5.001;y+=.01){const X=[-w/2,y,-d/2],c=[p.r1[0]*X[0]+p.ry[0]*X[1]+p.r2[0]*X[2]+p.t[0],p.r1[1]*X[0]+p.ry[1]*X[1]+p.r2[1]*X[2]+p.t[1],p.r1[2]*X[0]+p.ry[2]*X[1]+p.r2[2]*X[2]+p.t[2]];
+      if(c[2]<=0)continue;const e=Math.abs(f*c[1]/c[2]-v5);if(e<best){best=e;hh=y;}}}
+  return{w,d,h:hh,f,camZ:p.C[2]};}
+/*POSE-END*/
+
+(function(){
+const $=id=>document.getElementById(id);
+const stage=$('stage');
+if(!window.THREE||!THREE.OrbitControls){stage.innerHTML='<p class="err">โหลดระบบ 3D ไม่สำเร็จ ลองรีเฟรชหน้าอีกครั้ง</p>';return;}
+const V=THREE.Vector3;
+const baht=n=>'฿'+Math.round(n).toLocaleString('th-TH');
+
+/* ---------- canvas helpers ---------- */
+const TEX=512;
+function mkCanvas(w=TEX,h=TEX){const c=document.createElement('canvas');c.width=w;c.height=h;return c;}
+function rng(seed){let s=seed>>>0||1;return()=>{s^=s<<13;s>>>=0;s^=s>>>17;s^=s<<5;s>>>=0;return s/4294967296;};}
+function wrapDraw(ctx,W,H,fn){for(const dx of[-W,0,W])for(const dy of[-H,0,H]){ctx.save();ctx.translate(dx,dy);fn();ctx.restore();}}
+function grout(ctx,W,H,cols,rows,color,lw){ctx.fillStyle=color;
+  for(let i=0;i<=cols;i++)ctx.fillRect(i*W/cols-lw/2,0,lw,H);
+  for(let j=0;j<=rows;j++)ctx.fillRect(0,j*H/rows-lw/2,W,lw);}
+function offsetGrout(ctx,W,H,cols,rows,color,lw){ctx.fillStyle=color;const rh=H/rows,bw=W/cols;
+  for(let j=0;j<=rows;j++)ctx.fillRect(0,j*rh-lw/2,W,lw);
+  for(let j=0;j<rows;j++)for(let i=0;i<=cols+1;i++)ctx.fillRect(i*bw+(j%2?bw/2:0)-lw/2,j*rh,lw,rh);}
+function speckle(ctx,W,H,n,seed,cols){const r=rng(seed);for(let i=0;i<n;i++){ctx.fillStyle=cols[Math.floor(r()*cols.length)];ctx.fillRect(r()*W,r()*H,1+r()*1.5,1+r()*1.5);}}
+function grain(ctx,y0,h,W,r,count,rgb){for(let k=0;k<count;k++){const y=y0+r()*h,amp=1+r()*3,per=1+Math.floor(r()*3);
+  ctx.strokeStyle=`rgba(${rgb},${0.07+r()*0.12})`;ctx.lineWidth=0.8+r()*1.4;ctx.beginPath();
+  for(let x=0;x<=W;x+=16){const yy=y+Math.sin(x/W*Math.PI*2*per)*amp;x?ctx.lineTo(x,yy):ctx.moveTo(x,yy);}ctx.stroke();}}
+/* relief helpers: white = high surface, black = grout / seams */
+const R={grid:(c,r,lw)=>(ctx,W,H)=>{ctx.filter='blur(1.2px)';grout(ctx,W,H,c,r,'#000',lw);ctx.filter='none';},
+  offset:(c,r,lw)=>(ctx,W,H)=>{ctx.filter='blur(1.2px)';offsetGrout(ctx,W,H,c,r,'#000',lw);ctx.filter='none';}};
+
+/* normal + roughness maps from a relief canvas */
+function makeMaps(rc,strength,rough){const W=rc.width,H=rc.height,src=rc.getContext('2d').getImageData(0,0,W,H).data,hg=new Float32Array(W*H);
+  for(let i=0;i<W*H;i++)hg[i]=src[i*4]/255;
+  const nc=mkCanvas(W,H),nx=nc.getContext('2d'),nd=nx.createImageData(W,H),qc=mkCanvas(W,H),qx=qc.getContext('2d'),qd=qx.createImageData(W,H);
+  const at=(x,y)=>hg[((y+H)%H)*W+((x+W)%W)];
+  for(let y=0;y<H;y++)for(let x=0;x<W;x++){
+    const dx=(at(x+1,y-1)+2*at(x+1,y)+at(x+1,y+1))-(at(x-1,y-1)+2*at(x-1,y)+at(x-1,y+1));
+    const dy=(at(x-1,y+1)+2*at(x,y+1)+at(x+1,y+1))-(at(x-1,y-1)+2*at(x,y-1)+at(x+1,y-1));
+    const a=-dx*strength,b=dy*strength,l=Math.sqrt(a*a+b*b+1),i=(y*W+x)*4;
+    nd.data[i]=(a/l*.5+.5)*255;nd.data[i+1]=(b/l*.5+.5)*255;nd.data[i+2]=(1/l*.5+.5)*255;nd.data[i+3]=255;
+    const q=(rough[0]+(1-at(x,y))*(rough[1]-rough[0]))*255;qd.data[i]=qd.data[i+1]=qd.data[i+2]=q;qd.data[i+3]=255;}
+  nx.putImageData(nd,0,0);qx.putImageData(qd,0,0);return{normal:nc,rough:qc};}
+
+/* ---------- floors: unit = metres per texture repeat; price = THB per m² material, box m², labour per m² ---------- */
+const FLOORS=[
+ {id:'antislip',name:'กันลื่นเทา 30×30',unit:[0.6,0.6],dims:[30,30],price:{m2:280,box:0.99,labor:300},rough:[.7,.95],ns:1.2,coat:0,
+  draw(ctx,W,H){const s=W/2,tone=['#9fa09c','#a6a7a2','#9a9b97','#a3a49f'];
+   for(let i=0;i<2;i++)for(let j=0;j<2;j++){ctx.fillStyle=tone[i*2+j];ctx.fillRect(i*s,j*s,s,s);}
+   speckle(ctx,W,H,6000,17,['rgba(60,60,60,.25)','rgba(255,255,255,.18)']);grout(ctx,W,H,2,2,'#e6e4de',4);},
+  relief(ctx,W,H){speckle(ctx,W,H,9000,18,['#b8b8b8','#d0d0d0']);R.grid(2,2,6)(ctx,W,H);}},
+ {id:'oak',name:'ไม้โอ๊คลามิเนต',unit:[1.2,1.2],dims:[20,120],price:{m2:450,box:1.92,labor:150},rough:[.45,.85],ns:.6,coat:.2,
+  draw(ctx,W,H){const r=rng(7),rows=6,rh=H/rows,tone=['#b88a5c','#a97c50','#c29463','#9f744a','#b58556','#a78057'];
+   for(let i=0;i<rows;i++){ctx.fillStyle=tone[i];ctx.fillRect(0,i*rh,W,rh);grain(ctx,i*rh,rh,W,r,16,'90,55,25');
+     ctx.fillStyle='rgba(60,35,15,.55)';ctx.fillRect(r()*W,i*rh,2,rh);ctx.fillRect(0,i*rh,W,1.5);}},relief:'luma'},
+ {id:'chevron',name:'ไม้ลายก้างปลา',unit:[1.6,1.6],dims:[14,56],price:{m2:1600,box:1.0,labor:350},rough:[.4,.85],ns:.7,coat:.3,
+  draw(ctx,W,H){const tone=['#9a6a42','#a8774c','#8f613c','#b2824f','#9c6d44','#a37148','#8b5e3a','#ad7b4e'];
+   for(let c=0;c<4;c++){const x0=c*128,up=c%2===0;ctx.save();ctx.beginPath();ctx.rect(x0,0,128,H);ctx.clip();
+     for(let k=-4;k<12;k++){const y=k*64;ctx.fillStyle=tone[((k%8)+8)%8];ctx.beginPath();
+       if(up){ctx.moveTo(x0,y);ctx.lineTo(x0+128,y+128);ctx.lineTo(x0+128,y+192);ctx.lineTo(x0,y+64);}
+       else{ctx.moveTo(x0,y+128);ctx.lineTo(x0+128,y);ctx.lineTo(x0+128,y+64);ctx.lineTo(x0,y+192);}
+       ctx.closePath();ctx.fill();ctx.strokeStyle='rgba(60,35,18,.55)';ctx.lineWidth=1.5;ctx.stroke();}
+     ctx.restore();}
+   speckle(ctx,W,H,1500,5,['rgba(70,40,20,.15)','rgba(255,230,200,.08)']);},relief:'luma'},
+ {id:'marble',name:'หินอ่อนขาว 60×60',unit:[1.2,1.2],dims:[60,60],price:{m2:650,box:1.44,labor:350},rough:[.12,.9],ns:1,coat:.8,
+  draw(ctx,W,H){const r=rng(11);ctx.fillStyle='#ecebe6';ctx.fillRect(0,0,W,H);
+   for(let i=0;i<36;i++){const x=r()*W,y=r()*H,rad=40+r()*120;wrapDraw(ctx,W,H,()=>{const g=ctx.createRadialGradient(x,y,0,x,y,rad);
+     g.addColorStop(0,'rgba(196,194,186,.28)');g.addColorStop(1,'rgba(196,194,186,0)');ctx.fillStyle=g;ctx.fillRect(x-rad,y-rad,rad*2,rad*2);});}
+   for(let v=0;v<8;v++){let x=r()*W,y=r()*H,a=r()*Math.PI*2;const pts=[[x,y]];
+     for(let s=0;s<28;s++){a+=(r()-.5)*.7;x+=Math.cos(a)*14;y+=Math.sin(a)*14;pts.push([x,y]);}
+     const lw=.6+r()*2.2,al=.15+r()*.35;
+     wrapDraw(ctx,W,H,()=>{ctx.strokeStyle=`rgba(118,116,110,${al})`;ctx.lineWidth=lw;ctx.beginPath();pts.forEach((p,i)=>i?ctx.lineTo(p[0],p[1]):ctx.moveTo(p[0],p[1]));ctx.stroke();});}
+   grout(ctx,W,H,2,2,'rgba(150,145,135,.65)',2);},relief:R.grid(2,2,4)},
+ {id:'checker',name:'หมากรุกขาวดำ 30×30',unit:[0.6,0.6],dims:[30,30],price:{m2:450,box:0.99,labor:350},rough:[.25,.9],ns:1,coat:.5,
+  draw(ctx,W,H){const s=W/2;for(let i=0;i<2;i++)for(let j=0;j<2;j++){ctx.fillStyle=(i+j)%2?'#26292b':'#efece4';ctx.fillRect(i*s,j*s,s,s);}
+   speckle(ctx,W,H,1800,9,['rgba(128,128,128,.18)']);grout(ctx,W,H,2,2,'rgba(130,128,122,.7)',3);},relief:R.grid(2,2,5)},
+ {id:'hex',name:'ดินเผาหกเหลี่ยม',unit:[0.4,0.3464],dims:[20,23],area:0.0346,price:{m2:950,box:1.0,labor:450},rough:[.75,.95],ns:1.4,coat:0,
+  draw(ctx,W,H){const r=100,q=Math.sqrt(3)*r,LW=2*q,LH=3*r;ctx.fillStyle='#d6cfc1';ctx.fillRect(0,0,W,H);ctx.save();ctx.scale(W/LW,H/LH);
+   const tone=['#b8643f','#c2714b','#ad5a37','#c9805a'];
+   for(let j=-1;j<=3;j++)for(let i=-1;i<=3;i++){const cx=i*q+((j&1)?q/2:0),cy=j*1.5*r;
+     ctx.fillStyle=tone[((i%2+2)%2)*2+((j%2+2)%2)];ctx.beginPath();
+     for(let k=0;k<6;k++){const a=Math.PI/180*(60*k-90),px=cx+(r-5)*Math.cos(a),py=cy+(r-5)*Math.sin(a);k?ctx.lineTo(px,py):ctx.moveTo(px,py);}
+     ctx.closePath();ctx.fill();}
+   ctx.restore();speckle(ctx,W,H,1500,4,['rgba(90,40,20,.18)','rgba(255,220,190,.12)']);},relief:'invluma'},
+ {id:'terrazzo',name:'หินขัด (เทอราซโซ)',unit:[1.2,1.2],dims:[60,60],price:{m2:1300,box:1.44,labor:400},rough:[.2,.9],ns:.8,coat:.6,
+  draw(ctx,W,H){const r=rng(21);ctx.fillStyle='#e7e2d8';ctx.fillRect(0,0,W,H);const cols=['#8a8f8c','#c9b9a3','#3f4a4a','#b7c4bf','#d1c4b0','#9c7e64','#6f7b74'];
+   for(let i=0;i<300;i++){const x=r()*W,y=r()*H,s=3+r()*12,n=3+Math.floor(r()*3),rot=r()*6.3,col=cols[Math.floor(r()*cols.length)];
+     const pts=[];for(let k=0;k<n;k++){const a=rot+k/n*Math.PI*2,d=s*(.6+r()*.5);pts.push([Math.cos(a)*d,Math.sin(a)*d]);}
+     wrapDraw(ctx,W,H,()=>{ctx.fillStyle=col;ctx.beginPath();pts.forEach((p,k)=>k?ctx.lineTo(x+p[0],y+p[1]):ctx.moveTo(x+p[0],y+p[1]));ctx.closePath();ctx.fill();});}
+   grout(ctx,W,H,2,2,'rgba(160,152,140,.45)',2);},relief:R.grid(2,2,4)},
+ {id:'encaustic',name:'กระเบื้องลายโบราณ',unit:[0.8,0.8],dims:[20,20],price:{m2:1500,box:1.0,labor:450},rough:[.35,.9],ns:1,coat:.35,
+  draw(ctx,W,H){const s=W/4;
+   for(let i=0;i<4;i++)for(let j=0;j<4;j++){ctx.save();ctx.translate(i*s,j*s);ctx.fillStyle='#ece5d5';ctx.fillRect(0,0,s,s);
+     ctx.fillStyle='#24476b';for(const[cx,cy]of[[0,0],[s,0],[0,s],[s,s]]){ctx.beginPath();ctx.arc(cx,cy,s*.3,0,Math.PI*2);ctx.fill();}
+     ctx.fillStyle='#d4a43a';ctx.beginPath();ctx.moveTo(s/2,s*.16);ctx.lineTo(s*.84,s/2);ctx.lineTo(s/2,s*.84);ctx.lineTo(s*.16,s/2);ctx.closePath();ctx.fill();
+     ctx.fillStyle='#ece5d5';ctx.beginPath();ctx.arc(s/2,s/2,s*.13,0,Math.PI*2);ctx.fill();
+     ctx.fillStyle='#24476b';ctx.beginPath();ctx.arc(s/2,s/2,s*.06,0,Math.PI*2);ctx.fill();
+     ctx.strokeStyle='#24476b';ctx.lineWidth=2;ctx.strokeRect(s*.06,s*.06,s*.88,s*.88);ctx.restore();}
+   speckle(ctx,W,H,1200,8,['rgba(80,70,50,.15)']);grout(ctx,W,H,4,4,'rgba(150,140,120,.8)',2);},relief:R.grid(4,4,4)},
+ {id:'concrete',name:'ปูนขัดมัน',unit:[2,2],dims:null,tint:true,price:{m2:0,labor:650},rough:[.35,.7],ns:.4,coat:.35,
+  draw(ctx,W,H){const r=rng(31);ctx.fillStyle='#e4e3e0';ctx.fillRect(0,0,W,H);
+   for(let i=0;i<50;i++){const x=r()*W,y=r()*H,rad=30+r()*110,dark=r()<.5;wrapDraw(ctx,W,H,()=>{const g=ctx.createRadialGradient(x,y,0,x,y,rad);
+     g.addColorStop(0,dark?'rgba(150,150,150,.18)':'rgba(255,255,255,.22)');g.addColorStop(1,'rgba(0,0,0,0)');ctx.fillStyle=g;ctx.fillRect(x-rad,y-rad,rad*2,rad*2);});}
+   speckle(ctx,W,H,4000,6,['rgba(90,90,90,.18)','rgba(255,255,255,.3)']);},relief:'luma'}
+];
+
+/* ---------- walls (drawn light grey, tinted by the paint / glaze colour) ---------- */
+const WALLS=[
+ {id:'plain',name:'ทาสีเรียบ',unit:[1,1],price:{kind:'paint'},rough:[.85,.95],ns:.25,
+  draw(ctx,W,H){ctx.fillStyle='#f6f6f6';ctx.fillRect(0,0,W,H);speckle(ctx,W,H,900,2,['rgba(0,0,0,.04)']);},
+  relief(ctx,W,H){speckle(ctx,W,H,14000,3,['#d8d8d8','#e8e8e8']);}},
+ {id:'tile3060',name:'กระเบื้องผนัง 30×60',unit:[1.2,1.2],price:{kind:'tile',m2:380,tile:0.18,box:1.44,labor:350},rough:[.12,.9],ns:1,
+  draw(ctx,W,H){const r=rng(19);ctx.fillStyle='#f4f4f4';ctx.fillRect(0,0,W,H);
+   for(let i=0;i<2;i++)for(let j=0;j<4;j++){const v=236+Math.floor(r()*14);ctx.fillStyle=`rgb(${v},${v},${v})`;ctx.fillRect(i*W/2,j*H/4,W/2,H/4);}
+   grout(ctx,W,H,2,4,'#c9c9c9',3);},relief:R.grid(2,4,5)},
+ {id:'subway',name:'กระเบื้องซับเวย์',unit:[0.6,0.6],price:{kind:'tile',m2:750,tile:0.01125,box:1.0,labor:450},rough:[.08,.9],ns:1.4,
+  draw(ctx,W,H){const rh=H/8,bw=W/4;ctx.fillStyle='#c4c4c4';ctx.fillRect(0,0,W,H);
+   for(let j=0;j<8;j++)for(let i=-1;i<=4;i++){const x=i*bw+(j%2?bw/2:0),y=j*rh;const g=ctx.createLinearGradient(0,y,0,y+rh);
+     g.addColorStop(0,'#fdfdfd');g.addColorStop(1,'#ececec');ctx.fillStyle=g;ctx.fillRect(x+2,y+2,bw-4,rh-4);}},
+  relief(ctx,W,H){const rh=H/8,bw=W/4;ctx.fillStyle='#000';ctx.fillRect(0,0,W,H);ctx.filter='blur(3px)';ctx.fillStyle='#fff';
+   for(let j=0;j<8;j++)for(let i=-1;i<=4;i++)ctx.fillRect(i*bw+(j%2?bw/2:0)+5,j*rh+5,bw-10,rh-10);ctx.filter='none';}},
+ {id:'mosaic',name:'โมเสก 2.5 ซม.',unit:[0.3,0.3],price:{kind:'tile',m2:1100,tile:0.09,tileLabel:'แผ่นตาข่าย 30×30',box:1.0,labor:450},rough:[.1,.9],ns:1.2,
+  draw(ctx,W,H){const r=rng(23),n=12,s=W/n;ctx.fillStyle='#bdbdbd';ctx.fillRect(0,0,W,H);
+   for(let i=0;i<n;i++)for(let j=0;j<n;j++){const v=200+Math.floor(r()*55);ctx.fillStyle=`rgb(${v},${v},${v})`;ctx.fillRect(i*s+2,j*s+2,s-4,s-4);}},relief:R.grid(12,12,5)},
+ {id:'brick',name:'อิฐโชว์แนว',unit:[0.9,0.6],price:{kind:'tile',m2:850,tile:0.0169,box:1.0,labor:400},rough:[.85,.98],ns:1.8,
+  draw(ctx,W,H){const r=rng(13),rh=H/8,bw=W/4;ctx.fillStyle='#b9b9b9';ctx.fillRect(0,0,W,H);
+   for(let j=0;j<8;j++){const shades=[];for(let i=0;i<5;i++)shades.push(200+Math.floor(r()*45));
+     for(let i=-1;i<=4;i++){const x=i*bw+(j%2?bw/2:0),v=shades[((i%4)+4)%4];ctx.fillStyle=`rgb(${v},${v},${v})`;ctx.fillRect(x+3,j*rh+3,bw-6,rh-6);}}
+   speckle(ctx,W,H,3000,14,['rgba(0,0,0,.08)','rgba(255,255,255,.15)']);},
+  relief(ctx,W,H){speckle(ctx,W,H,8000,15,['#c8c8c8','#e0e0e0']);R.offset(4,8,8)(ctx,W,H);}},
+ {id:'stripes',name:'วอลเปเปอร์ลายทาง',unit:[0.5,0.5],price:{kind:'roll',roll:1200,rollM2:5},rough:[.8,.9],ns:.3,
+  draw(ctx,W,H){ctx.fillStyle='#f7f7f7';ctx.fillRect(0,0,W,H);ctx.fillStyle='#e0e0e0';ctx.fillRect(W/2,0,W/2,H);
+   ctx.fillStyle='#d2d2d2';ctx.fillRect(W/2-3,0,3,H);ctx.fillRect(W-3,0,3,H);},relief(ctx,W,H){speckle(ctx,W,H,14000,5,['#dcdcdc','#eeeeee']);}},
+ {id:'slats',name:'ระแนงไม้แนวตั้ง',unit:[0.6,0.6],price:{kind:'area',m2:1500,label:'ระแนงไม้ (รวมติดตั้ง)'},rough:[.55,.95],ns:2,
+  draw(ctx,W,H){const n=8,sw=W/n;ctx.fillStyle='#7d7d7d';ctx.fillRect(0,0,W,H);
+   for(let i=0;i<n;i++){const g=ctx.createLinearGradient(i*sw,0,i*sw+sw,0);g.addColorStop(0,'#e8e8e8');g.addColorStop(.5,'#fafafa');g.addColorStop(1,'#d6d6d6');
+     ctx.fillStyle=g;ctx.fillRect(i*sw+4,0,sw-8,H);}},
+  relief(ctx,W,H){const n=8,sw=W/n;ctx.fillStyle='#000';ctx.fillRect(0,0,W,H);
+   for(let i=0;i<n;i++){const g=ctx.createLinearGradient(i*sw,0,i*sw+sw,0);g.addColorStop(0,'#555');g.addColorStop(.2,'#fff');g.addColorStop(.8,'#fff');g.addColorStop(1,'#555');ctx.fillStyle=g;ctx.fillRect(i*sw+4,0,sw-8,H);}}}
+];
+const PAINTS=['#f4f2ee','#e6e0d2','#d8d2c8','#c9c2b8','#9a8e82','#5a514a','#d6e0d9','#c7d4de'];
+const PAINT={gallon:1200,cover:35,coats:2,labor:80};
+
+/* ---------- state ---------- */
+const DEFAULT={room:{w:2.2,d:2.8,h:2.6},size:{src:'preset'},floor:'antislip',floorScale:1,floorTint:'#c4c1ba',wallPat:'tile3060',wallColor:'#f4f2ee',
+  items:[{t:'shower',x:.65,z:-.95,r:0},{t:'toilet',x:-.55,z:-1.05,r:0},{t:'vanity',x:-.86,z:.35,r:Math.PI/2},
+         {t:'mirror',x:-1.09,z:.35,r:Math.PI/2},{t:'towel',x:1.07,z:.45,r:-Math.PI/2},{t:'bathmat',x:.6,z:-.15,r:0},
+         {t:'plant',x:.85,z:1.15,r:0}]};
+const KEY='room3d.v3';
+let state;
+try{state=JSON.parse(localStorage.getItem(KEY));}catch(e){state=null;}
+if(!state||!state.room)state=JSON.parse(JSON.stringify(DEFAULT));
+if(!state.size)state.size={src:'preset'};
+function save(){state.items=itemsGroup.children.map(g=>({t:g.userData.t,x:+g.position.x.toFixed(3),z:+g.position.z.toFixed(3),r:+g.rotation.y.toFixed(4),c:g.userData.c}));
+  try{localStorage.setItem(KEY,JSON.stringify({...state,floor:state.floor==='custom'?'antislip':state.floor}));}catch(e){}
+  $('itemCount').textContent=`ของในห้อง ${itemsGroup.children.length} ชิ้น`;renderSummary();}
+
+/* ---------- renderer & scene ---------- */
+let renderer;
+try{renderer=new THREE.WebGLRenderer({antialias:true});}catch(e){stage.insertAdjacentHTML('afterbegin','<p class="err">อุปกรณ์นี้ไม่รองรับกราฟิก 3D (WebGL)</p>');return;}
+renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,2));
+renderer.outputEncoding=THREE.sRGBEncoding;renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=0.78;
+renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+stage.prepend(renderer.domElement);
+const canvas=renderer.domElement,maxAniso=renderer.capabilities.getMaxAnisotropy();
+const scene=new THREE.Scene();
+if(THREE.RoomEnvironment){const pm=new THREE.PMREMGenerator(renderer);scene.environment=pm.fromScene(new THREE.RoomEnvironment(),0.04).texture;pm.dispose();}
+const camera=new THREE.PerspectiveCamera(45,1,0.03,100);
+const controls=new THREE.OrbitControls(camera,canvas);
+controls.enableDamping=true;controls.dampingFactor=0.08;controls.maxPolarAngle=Math.PI/2.05;controls.minDistance=1.2;controls.maxDistance=24;controls.autoRotateSpeed=0.8;
+
+scene.add(new THREE.HemisphereLight(0xffffff,0x8d8370,scene.environment?0.1:0.55));
+const sun=new THREE.DirectionalLight(0xfff1dc,0.6);sun.position.set(3.5,8,4);sun.castShadow=true;
+sun.shadow.mapSize.set(2048,2048);Object.assign(sun.shadow.camera,{left:-7,right:7,top:7,bottom:-7,near:1,far:20});sun.shadow.bias=-0.0005;sun.shadow.radius=4;
+scene.add(sun);
+const ceilLight=new THREE.PointLight(0xfff0dc,0.35,14,1.5);ceilLight.castShadow=true;ceilLight.shadow.mapSize.set(1024,1024);ceilLight.shadow.bias=-0.003;ceilLight.shadow.radius=6;
+scene.add(ceilLight);
+
+const cssVar=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+function readScene(){if(photoMode)return;scene.background=new THREE.Color(cssVar('--scene')||'#e8e5e0');}
+try{matchMedia('(prefers-color-scheme: dark)').addEventListener('change',readScene);}catch(e){}
+new MutationObserver(readScene).observe(document.documentElement,{attributes:true,attributeFilter:['data-theme']});
+
+function texFrom(c,srgb=true){const t=new THREE.CanvasTexture(c);t.wrapS=t.wrapT=THREE.RepeatWrapping;if(srgb)t.encoding=THREE.sRGBEncoding;t.anisotropy=maxAniso;return t;}
+function lumaRelief(src,invert){const rc=mkCanvas(),x=rc.getContext('2d');x.drawImage(src,0,0,TEX,TEX);const d=x.getImageData(0,0,TEX,TEX);
+  for(let i=0;i<d.data.length;i+=4){let l=(d.data[i]*.3+d.data[i+1]*.59+d.data[i+2]*.11);if(invert)l=255-l;d.data[i]=d.data[i+1]=d.data[i+2]=l;}x.putImageData(d,0,0);return rc;}
+function buildSurface(p){if(!p.canvas){const c=mkCanvas(1024,1024),x=c.getContext('2d');x.scale(2,2);p.draw(x,TEX,TEX);p.canvas=c;}
+  let rc;if(typeof p.relief==='function'){rc=mkCanvas();const x=rc.getContext('2d');x.fillStyle='#fff';x.fillRect(0,0,TEX,TEX);p.relief(x,TEX,TEX);}
+  else rc=lumaRelief(p.canvas,p.relief==='invluma');
+  const maps=makeMaps(rc,p.ns*1.6,p.rough||[.5,.9]);
+  p.thumb=p.canvas.toDataURL('image/jpeg',.82);p.tex=texFrom(p.canvas);p.ntex=texFrom(maps.normal,false);p.rtex=texFrom(maps.rough,false);}
+FLOORS.forEach(buildSurface);WALLS.forEach(buildSurface);
+
+/* ---------- room ---------- */
+const roomGroup=new THREE.Group(),itemsGroup=new THREE.Group();scene.add(roomGroup,itemsGroup);
+const floorMat=new THREE.MeshPhysicalMaterial({roughness:1,metalness:0,clearcoatRoughness:.12,envMapIntensity:.6});
+const shadowMat=new THREE.ShadowMaterial({opacity:.32});
+const wallMats=[0,1,2,3].map(()=>new THREE.MeshStandardMaterial({roughness:1,side:THREE.FrontSide,envMapIntensity:.55}));
+const ceilMat=new THREE.MeshStandardMaterial({color:'#f5f4f0',roughness:.95});
+let walls=[],floorMesh,baseMesh,ceilMesh;
+let photoImg=null,photoTex=null,picked=null,pts=null,calibrated=false,photoMode=false,showOriginal=false,photoF=null;
+
+function buildRoom(){
+  roomGroup.children.slice().forEach(o=>{roomGroup.remove(o);o.traverse(m=>m.geometry&&m.geometry.dispose());});
+  const {w,d,h}=state.room;
+  baseMesh=new THREE.Mesh(new THREE.BoxGeometry(w+0.24,0.14,d+0.24),new THREE.MeshStandardMaterial({color:'#4f4842',roughness:.9}));
+  baseMesh.position.y=-0.071;baseMesh.receiveShadow=true;roomGroup.add(baseMesh);
+  floorMesh=new THREE.Mesh(new THREE.PlaneGeometry(w,d),floorMat);floorMesh.rotation.x=-Math.PI/2;floorMesh.receiveShadow=true;roomGroup.add(floorMesh);
+  ceilMesh=new THREE.Mesh(new THREE.PlaneGeometry(w,d),ceilMat);ceilMesh.rotation.x=Math.PI/2;ceilMesh.position.y=h;roomGroup.add(ceilMesh);
+  ceilLight.position.set(0,h-0.12,0);
+  const skirtMat=new THREE.MeshStandardMaterial({color:'#f4f2ee',roughness:.5});
+  const defs=[
+    {len:w,pos:[0,h/2,-d/2],ry:0,out:c=>c.z<-d/2},
+    {len:w,pos:[0,h/2,d/2],ry:Math.PI,out:c=>c.z>d/2},
+    {len:d,pos:[-w/2,h/2,0],ry:Math.PI/2,out:c=>c.x<-w/2},
+    {len:d,pos:[w/2,h/2,0],ry:-Math.PI/2,out:c=>c.x>w/2}];
+  walls=defs.map((df,i)=>{const g=new THREE.Group();g.position.set(...df.pos);g.rotation.y=df.ry;
+    const m=new THREE.Mesh(new THREE.PlaneGeometry(df.len,h),wallMats[i]);m.receiveShadow=true;g.add(m);
+    const sk=new THREE.Mesh(new THREE.BoxGeometry(df.len,0.08,0.012),skirtMat);sk.position.set(0,-h/2+0.04,0.006);sk.receiveShadow=true;g.add(sk);
+    roomGroup.add(g);return{group:g,out:df.out};});
+  applyFloor();applyWalls();applyDisplayMode();updateDims();
+}
+function floorDef(){return FLOORS.find(f=>f.id===state.floor)||FLOORS[0];}
+function wallDef(){return WALLS.find(x=>x.id===state.wallPat)||WALLS[0];}
+function applyFloor(){const f=floorDef(),s=state.floorScale;f.tex.repeat.set(state.room.w/(f.unit[0]*s),state.room.d/(f.unit[1]*s));
+  Object.assign(floorMat,{map:f.tex,normalMap:f.ntex,roughnessMap:f.rtex,roughness:1,clearcoat:f.coat||0});floorMat.normalScale.set(1,1);
+  floorMat.color.set(f.tint?state.floorTint:'#ffffff');floorMat.needsUpdate=true;renderFloorSwatches();renderSummary();}
+let wallTexW=null,wallTexD=null;
+function applyWalls(){const p=wallDef();
+  if(wallTexW)wallTexW.dispose();if(wallTexD)wallTexD.dispose();
+  wallTexW=p.tex.clone();wallTexW.needsUpdate=true;wallTexD=p.tex.clone();wallTexD.needsUpdate=true;
+  const h=state.room.h;wallTexW.repeat.set(state.room.w/p.unit[0],h/p.unit[1]);wallTexD.repeat.set(state.room.d/p.unit[0],h/p.unit[1]);
+  wallMats.forEach((m,i)=>{Object.assign(m,{map:i<2?wallTexW:wallTexD,normalMap:p.ntex,roughnessMap:p.rtex,roughness:1});m.color.set(state.wallColor);m.needsUpdate=true;});
+  renderWallUI();renderSummary();}
+/* "รูปเดิม" shows the photo with only shadows + new items; "ห้องเปล่า" covers the old room with new surfaces */
+function applyDisplayMode(){const orig=photoMode&&showOriginal;if(floorMesh)floorMesh.material=orig?shadowMat:floorMat;if(baseMesh)baseMesh.visible=!orig;}
+function updateDims(){const {w,d,h}=state.room;$('dimsLabel').textContent=`${w.toFixed(2)} × ${d.toFixed(2)} × ${h.toFixed(2)} ม. · ${(w*d).toFixed(1)} ตร.ม.`;
+  const s=state.size||{};$('sizeSrc').innerHTML=s.src==='photo'?`ประมาณจากรูป (กล้องสูง ${s.camH} ม.) คลาดเคลื่อนได้ราว ±10%<br><b>${w.toFixed(2)} × ${d.toFixed(2)} × ${h.toFixed(2)} ม.</b>`
+    :s.src==='manual'?`กรอกขนาดเอง<br><b>${w.toFixed(2)} × ${d.toFixed(2)} × ${h.toFixed(2)} ม.</b>`:`ขนาดตัวอย่าง<br><b>${w.toFixed(2)} × ${d.toFixed(2)} × ${h.toFixed(2)} ม.</b>`;}
+
+/* ---------- realistic materials for furniture ---------- */
+function woodCanvas(){const c=mkCanvas(),x=c.getContext('2d'),r=rng(77);x.fillStyle='#ececec';x.fillRect(0,0,TEX,TEX);
+  for(let k=0;k<160;k++){const y=r()*TEX,amp=2+r()*6,per=1+Math.floor(r()*3),v=120+Math.floor(r()*80);
+    x.strokeStyle=`rgba(${v},${v},${v},${.12+r()*.25})`;x.lineWidth=.6+r()*2.5;x.beginPath();
+    for(let xx=0;xx<=TEX;xx+=16){const yy=y+Math.sin(xx/TEX*Math.PI*2*per+k)*amp;xx?x.lineTo(xx,yy):x.moveTo(xx,yy);}x.stroke();}return c;}
+function fabricCanvas(){const c=mkCanvas(256,256),x=c.getContext('2d'),n=32,s=256/n,r=rng(9);x.fillStyle='#d0d0d0';x.fillRect(0,0,256,256);
+  for(let i=0;i<n;i++)for(let j=0;j<n;j++){const v=215+Math.floor(r()*35);x.fillStyle=`rgb(${v},${v},${v})`;if((i+j)%2)x.fillRect(i*s,j*s+1,s,s-2);else x.fillRect(i*s+1,j*s,s-2,s);}
+  speckle(x,256,256,1500,4,['rgba(0,0,0,.08)','rgba(255,255,255,.25)']);return c;}
+const woodC=woodCanvas(),woodMaps=makeMaps(lumaRelief(woodC),.8,[.45,.7]),woodMap=texFrom(woodC),woodN=texFrom(woodMaps.normal,false);
+const fabC=fabricCanvas(),fabMaps=makeMaps(fabC,2.2,[.9,1]),fabMap=texFrom(fabC),fabN=texFrom(fabMaps.normal,false);fabMap.repeat.set(6,6);
+let rugMap=null;
+function getRugMap(){if(rugMap)return rugMap;const c=mkCanvas(),x=c.getContext('2d');
+  x.fillStyle='#ededed';x.fillRect(0,0,512,512);x.fillStyle='#bdbdbd';x.fillRect(18,18,476,476);x.fillStyle='#f2f2f2';x.fillRect(40,40,432,432);
+  x.strokeStyle='#cfcfcf';x.lineWidth=6;for(let i=-512;i<512;i+=48){x.beginPath();x.moveTo(40+i,40);x.lineTo(472+i,472);x.stroke();}
+  x.fillStyle='#bdbdbd';x.fillRect(40,40,432,10);x.fillRect(40,462,432,10);speckle(x,512,512,9000,3,['rgba(0,0,0,.07)','rgba(255,255,255,.2)']);
+  rugMap=texFrom(c);return rugMap;}
+let screenMap=null;
+function getScreenMap(){if(screenMap)return screenMap;const c=mkCanvas(512,288),x=c.getContext('2d');const g=x.createLinearGradient(0,0,0,288);
+  g.addColorStop(0,'#3a5a78');g.addColorStop(.55,'#c9a27c');g.addColorStop(.56,'#31424f');g.addColorStop(1,'#141c22');x.fillStyle=g;x.fillRect(0,0,512,288);
+  x.fillStyle='rgba(255,236,200,.85)';x.beginPath();x.arc(360,150,22,0,Math.PI*2);x.fill();screenMap=new THREE.CanvasTexture(c);screenMap.encoding=THREE.sRGBEncoding;return screenMap;}
+
+const MAT={
+  wood:c=>new THREE.MeshStandardMaterial({color:c,map:woodMap,normalMap:woodN,normalScale:new THREE.Vector2(.35,.35),roughness:.55}),
+  fabric:c=>new THREE.MeshStandardMaterial({color:c,map:fabMap,normalMap:fabN,normalScale:new THREE.Vector2(.8,.8),roughness:1}),
+  terry:c=>new THREE.MeshStandardMaterial({color:c,map:fabMap,normalMap:fabN,normalScale:new THREE.Vector2(1.6,1.6),roughness:1}),
+  ceramic:c=>new THREE.MeshPhysicalMaterial({color:c,roughness:.12,clearcoat:1,clearcoatRoughness:.04}),
+  matte:c=>new THREE.MeshStandardMaterial({color:c,roughness:.6}),
+  paint:c=>new THREE.MeshPhysicalMaterial({color:c,roughness:.35,clearcoat:.4,clearcoatRoughness:.2}),
+  chrome:()=>new THREE.MeshStandardMaterial({color:'#eef0f2',metalness:1,roughness:.08}),
+  brushed:c=>new THREE.MeshStandardMaterial({color:c||'#2b2b2b',metalness:.85,roughness:.35}),
+  glass:()=>new THREE.MeshPhysicalMaterial({color:'#e7f3f5',metalness:0,roughness:.02,transparent:true,opacity:.18,clearcoat:1,depthWrite:false,side:THREE.DoubleSide}),
+  mirror:()=>new THREE.MeshStandardMaterial({color:'#f4f7f8',metalness:1,roughness:.02}),
+  leaf:c=>new THREE.MeshStandardMaterial({color:c,roughness:.5,side:THREE.DoubleSide})
+};
+const shade=(c,l)=>{const k=new THREE.Color(c);k.offsetHSL(0,0,l);return'#'+k.getHexString();};
+function add(g,geo,mat,x,y,z){const m=new THREE.Mesh(geo,mat);m.position.set(x,y,z);g.add(m);return m;}
+const RB=THREE.RoundedBoxGeometry;
+function rb(g,w,h,d,r,mat,x,y,z){r=Math.min(r,w/2-.001,h/2-.001,d/2-.001);return add(g,RB&&r>.002?new RB(w,h,d,3,r):new THREE.BoxGeometry(w,h,d),mat,x,y,z);}
+function cy(g,rt,rb_,h,mat,x,y,z,seg=40){return add(g,new THREE.CylinderGeometry(rt,rb_,h,seg),mat,x,y,z);}
+function lathe(g,prof,mat,x,y,z,seg=64){return add(g,new THREE.LatheGeometry(prof.map(p=>new THREE.Vector2(p[0],p[1])),seg),mat,x,y,z);}
+function tube(g,points,r,mat){return add(g,new THREE.TubeGeometry(new THREE.CatmullRomCurve3(points.map(p=>new V(...p))),48,r,12),mat,0,0,0);}
+const WOOD=['#c9a27a','#a47a52','#5b4130','#e9e2d6'];
+const CERAMIC=['#f7f7f5','#2b2b2b','#e8dcc8','#b9c2bd'];
+
+/* ---------- catalogue: realistic sizes; price = typical Thai retail THB ---------- */
+const CATALOG={
+ toilet:{cat:'bath',name:'ชักโครก',size:'38×70 ซม.',price:4500,colors:CERAMIC,build(c,g){const m=MAT.ceramic(c);
+   lathe(g,[[0,0],[.14,0],[.15,.04],[.155,.18],[.19,.3],[.205,.37],[.2,.395],[.18,.402],[.15,.385],[.09,.31],[0,.28]],m,0,0,.06).scale.z=1.28;
+   const seat=add(g,new THREE.TorusGeometry(.168,.024,16,64),m,0,.41,.06);seat.rotation.x=Math.PI/2;seat.scale.set(1,1.28,1);
+   const lid=cy(g,.192,.192,.018,m,0,.432,.06,64);lid.scale.z=1.28;
+   rb(g,.42,.38,.17,.035,m,0,.6,-.26);rb(g,.44,.03,.19,.012,m,0,.805,-.26);cy(g,.03,.03,.01,MAT.chrome(),0,.825,-.26,32);}},
+ vanity:{cat:'bath',name:'อ่างล้างหน้า + ตู้',size:'80×48 ซม.',price:8900,colors:WOOD,build(c,g){const w=MAT.wood(c);
+   rb(g,.8,.46,.46,.012,w,0,.56,0);rb(g,.78,.004,.01,.001,MAT.matte('#1d1b19'),0,.56,.231);rb(g,.5,.014,.02,.006,MAT.brushed(),0,.76,.24);
+   rb(g,.8,.035,.48,.008,MAT.ceramic('#efede8'),0,.808,.01);
+   const b=lathe(g,[[0,0],[.1,0],[.17,.02],[.21,.07],[.22,.13],[.214,.136],[.2,.085],[.16,.04],[0,.03]],MAT.ceramic('#f7f7f5'),0,.826,.04);b.scale.x=1.15;
+   const ch=MAT.chrome();cy(g,.025,.03,.02,ch,0,.835,-.17,24);tube(g,[[0,.84,-.17],[0,1.02,-.17],[0,1.08,-.13],[0,1.07,-.06],[0,1.03,-.04]],.011,ch);
+   cy(g,.012,.012,.05,ch,.05,.86,-.17,16);}},
+ bathtub:{cat:'bath',name:'อ่างอาบน้ำตั้งพื้น',size:'170×75 ซม.',price:24900,colors:CERAMIC,build(c,g){const m=MAT.ceramic(c);
+   const t=lathe(g,[[0,0],[.32,0],[.37,.04],[.4,.3],[.41,.56],[.405,.585],[.385,.585],[.37,.55],[.355,.3],[.31,.1],[0,.08]],m,0,0,0,80);t.scale.set(2.1,1,.92);
+   const ch=MAT.chrome();tube(g,[[-.98,0,.0],[-.98,.85,0],[-.98,.95,.06],[-.9,.97,.04],[-.82,.9,0]],.014,ch);cy(g,.06,.06,.01,ch,-.98,.005,0,24);}},
+ shower:{cat:'bath',name:'ฝักบัว Rain + ฉากกระจก',size:'90×90 ซม.',price:18900,colors:['#eef0f2','#2b2b2b','#c9a45c'],build(c,g){
+   const fr=c==='#eef0f2'?MAT.chrome():MAT.brushed(c);
+   const tray=rb(g,.9,.05,.9,.01,MAT.ceramic('#f7f7f5'),0,.025,0);tray.userData.noShadow=true;
+   rb(g,.6,.006,.06,.003,MAT.brushed('#3a3a3a'),.1,.052,-.38).userData.noShadow=true;
+   const gf=rb(g,.9,1.95,.008,.003,MAT.glass(),0,1.02,.445);gf.userData.noShadow=true;const gs=rb(g,.008,1.95,.9,.003,MAT.glass(),-.445,1.02,0);gs.userData.noShadow=true;
+   rb(g,.9,.02,.02,.004,fr,0,2.0,.445);rb(g,.02,.02,.9,.004,fr,-.445,2.0,0);rb(g,.02,1.95,.02,.004,fr,-.445,1.02,.445);
+   cy(g,.012,.012,1.95,fr,.38,1.02,-.42,16);rb(g,.012,.012,.2,.004,fr,.38,1.98,-.33);
+   const head=rb(g,.25,.012,.25,.006,fr,.38,1.96,-.25);head.userData.noShadow=true;
+   rb(g,.08,.14,.04,.01,fr,.38,1.05,-.41);rb(g,.03,.2,.03,.012,fr,.3,1.25,-.41);}},
+ mirror:{cat:'bath',name:'กระจกทรงกลม',size:'ø66 ซม.',price:2490,colors:['#2b2b2b','#c9a27a','#c9a45c','#f4f2ee'],build(c,g){
+   const fr=add(g,new THREE.TorusGeometry(.322,.012,16,96),MAT.brushed(c),0,1.5,.012);fr.userData.noShadow=true;
+   const m=cy(g,.32,.32,.008,MAT.mirror(),0,1.5,.008,96);m.rotation.x=Math.PI/2;}},
+ towel:{cat:'bath',name:'ราวแขวนผ้า + ผ้าขนหนู',size:'60 ซม.',price:1290,colors:['#f4f2ee','#9aa7b0','#d9b99b','#8e9e86'],build(c,g){
+   const ch=MAT.chrome();for(const y of[1.1,.85])cy(g,.01,.01,.6,ch,0,y,.06,16).rotation.z=Math.PI/2;
+   for(const x of[-.3,.3]){rb(g,.03,.3,.03,.01,ch,x,.975,.015);}
+   const tm=MAT.terry(c);rb(g,.42,.5,.03,.012,tm,-.04,.86,.08);rb(g,.42,.18,.03,.012,tm,-.04,1.03,.045);}},
+ washer:{cat:'bath',name:'เครื่องซักผ้าฝาหน้า',size:'60×60 ซม.',price:12900,colors:['#f4f4f2','#2b2b2b','#9aa3a8'],build(c,g){const m=MAT.paint(c);
+   rb(g,.6,.85,.58,.03,m,0,.425,0);const ring=add(g,new THREE.TorusGeometry(.2,.025,20,64),MAT.chrome(),0,.42,.295);
+   const glass=add(g,new THREE.CircleGeometry(.19,64),new THREE.MeshPhysicalMaterial({color:'#1f2a30',roughness:.05,clearcoat:1}),0,.42,.3);glass.userData.noShadow=true;
+   rb(g,.56,.1,.01,.004,MAT.paint(shade(c,-.06)),0,.78,.291);const dial=cy(g,.03,.03,.02,MAT.chrome(),.18,.78,.3,32);dial.rotation.x=Math.PI/2;void ring;}},
+ basket:{cat:'bath',name:'ตะกร้าผ้าสาน',size:'ø40 ซม.',price:590,colors:['#c9a77c','#e9e2d6','#5b4130'],build(c,g){
+   lathe(g,[[0,0],[.17,0],[.19,.3],[.2,.55],[.19,.55],[.18,.3],[.16,.02],[0,.02]],MAT.fabric(c),0,0,0,40);}},
+ bathmat:{cat:'bath',name:'พรมเช็ดเท้า',size:'60×40 ซม.',price:390,colors:['#f4f2ee','#9aa7b0','#d9b99b','#4a4440'],build(c,g){rb(g,.6,.018,.4,.008,MAT.terry(c),0,.009,0).userData.noShadow=true;}},
+ /* living / bedroom */
+ sofa:{cat:'living',name:'โซฟา 3 ที่นั่ง',size:'200×90 ซม.',price:15900,colors:['#8d8479','#5f6b6e','#3e3a37','#c9bba6','#8a5a45'],build(c,g){const m=MAT.fabric(c),cu=MAT.fabric(shade(c,.04)),lg=MAT.wood('#5b4130');
+   rb(g,2,.22,.9,.04,m,0,.26,0);rb(g,2,.5,.2,.06,m,0,.6,-.35);rb(g,.18,.36,.9,.07,m,-.91,.55,0);rb(g,.18,.36,.9,.07,m,.91,.55,0);
+   for(const x of[-.55,0,.55])rb(g,.56,.15,.64,.06,cu,x,.445,.07);for(const x of[-.55,0,.55])rb(g,.54,.4,.16,.08,cu,x,.68,-.2).rotation.x=-.12;
+   rb(g,.42,.42,.13,.1,MAT.fabric('#c9a27a'),-.6,.66,-.08).rotation.set(-.2,.25,.1);
+   for(const x of[-.9,.9])for(const z of[-.38,.38])cy(g,.022,.016,.15,lg,x,.075,z,16);}},
+ armchair:{cat:'living',name:'อาร์มแชร์',size:'85×85 ซม.',price:5900,colors:['#c58f4e','#5f6b6e','#7b8c6a','#d8cdbd'],build(c,g){const m=MAT.fabric(c),lg=MAT.wood('#5b4130');
+   rb(g,.85,.22,.8,.04,m,0,.3,0);rb(g,.85,.48,.16,.06,m,0,.64,-.33);rb(g,.14,.3,.8,.06,m,-.36,.55,0);rb(g,.14,.3,.8,.06,m,.36,.55,0);rb(g,.58,.12,.62,.05,MAT.fabric(shade(c,.04)),0,.465,.06);
+   for(const x of[-.36,.36])for(const z of[-.33,.33])cy(g,.022,.016,.19,lg,x,.095,z,16);}},
+ bed:{cat:'living',name:'เตียง 5 ฟุต',size:'160×200 ซม.',price:12900,colors:['#9aa7b0','#c9a27a','#8e9e86','#e6dfd3'],build(c,g){const fr=MAT.fabric('#8d8479'),wh=MAT.fabric('#f4f2ee'),bl=MAT.fabric(c);
+   rb(g,1.7,.3,2.1,.04,fr,0,.2,0);rb(g,1.6,.24,2,.06,wh,0,.47,0);rb(g,1.66,.08,1.4,.04,bl,0,.6,.33);rb(g,1.7,1,.1,.05,fr,0,.6,-1.02);
+   for(const x of[-.4,.4])rb(g,.62,.15,.4,.07,wh,x,.66,-.74).rotation.x=-.25;}},
+ nightstand:{cat:'living',name:'ตู้ข้างเตียง + โคมไฟ',size:'45×40 ซม.',price:3290,colors:WOOD,build(c,g){const m=MAT.wood(c);rb(g,.45,.48,.4,.01,m,0,.3,0);
+   rb(g,.43,.003,.01,.001,MAT.matte('#1d1b19'),0,.38,.201);rb(g,.12,.012,.015,.005,MAT.brushed('#c9a45c'),0,.45,.21);
+   for(const x of[-.19,.19])for(const z of[-.16,.16])cy(g,.012,.01,.06,MAT.brushed(),x,.03,z,12);
+   lathe(g,[[0,0],[.06,0],[.07,.08],[.05,.2],[.015,.24],[0,.24]],MAT.ceramic('#d8d2c8'),.08,.54,-.05,40);
+   const sh=lathe(g,[[.11,0],[.08,.16]],new THREE.MeshStandardMaterial({color:'#f3ead8',emissive:'#f3dfb8',emissiveIntensity:.5,side:THREE.DoubleSide,roughness:1}),.08,.76,-.05,48);sh.userData.noShadow=true;}},
+ wardrobe:{cat:'living',name:'ตู้เสื้อผ้า',size:'120×60 ซม.',price:7900,colors:['#e9e2d6','#c9a27a','#5b4130','#8a8d86'],build(c,g){const m=MAT.wood(c);rb(g,1.2,1.95,.6,.01,m,0,1.03,0);rb(g,1.16,.06,.56,.005,MAT.matte('#2b2b2b'),0,.03,0);
+   rb(g,.004,1.88,.01,.001,MAT.matte('#1d1b19'),0,1.03,.302);for(const x of[-.04,.04])rb(g,.015,.5,.02,.006,MAT.brushed('#c9a45c'),x,1.1,.315);}},
+ bookshelf:{cat:'living',name:'ชั้นหนังสือ',size:'90×30 ซม.',price:2990,colors:['#c9a27a','#2b2b2b','#e9e2d6'],build(c,g){const m=MAT.wood(c),r=rng(42);
+   rb(g,.03,1.8,.3,.005,m,-.435,.9,0);rb(g,.03,1.8,.3,.005,m,.435,.9,0);rb(g,.9,1.8,.015,.003,m,0,.9,-.142);
+   const bc=['#8a3f2e','#2c4f6e','#c99a3a','#3e5e4a','#e8e2d4','#5b4a6e','#1f2a2e','#b6a48d'];
+   for(let i=0;i<5;i++){const y=.02+i*.44;rb(g,.84,.025,.28,.004,m,0,y,0);if(i<4){let x=-.4;while(x<.34){const bw=.025+r()*.035,bh=.22+r()*.12;
+     if(r()>.18)rb(g,bw,bh,.2,.003,MAT.matte(bc[Math.floor(r()*bc.length)]),x+bw/2,y+.013+bh/2,.02);else if(r()>.5){lathe(g,[[0,0],[.04,0],[.05,.06],[.025,.14],[.03,.16],[0,.16]],MAT.ceramic('#d8d2c8'),x+.05,y+.013,.02,32);x+=.06;}x+=bw+.004;}}}}},
+ dining:{cat:'living',name:'โต๊ะกินข้าว',size:'160×90 ซม.',price:6900,colors:WOOD,build(c,g){const m=MAT.wood(c);rb(g,1.6,.04,.9,.01,m,0,.75,0);
+   for(const x of[-.72,.72])for(const z of[-.36,.36])cy(g,.03,.02,.73,m,x,.365,z,16);}},
+ chair:{cat:'living',name:'เก้าอี้',size:'45×50 ซม.',price:1490,colors:['#c9a27a','#2b2b2b','#e9e2d6','#7b8c6a'],build(c,g){const m=MAT.wood(c);rb(g,.45,.04,.45,.012,m,0,.45,0);
+   const b=rb(g,.43,.24,.025,.01,m,0,.75,-.205);b.rotation.x=-.08;for(const x of[-.19,.19])for(const z of[-.19,.19])cy(g,.016,.013,.45,m,x,.225,z,12);
+   for(const x of[-.19,.19])cy(g,.013,.013,.42,m,x,.65,-.2,12);}},
+ coffee:{cat:'living',name:'โต๊ะกลางหินอ่อน',size:'ø80 ซม.',price:4590,colors:['#ecebe6','#2b2b2b','#c9a27a'],build(c,g){
+   const top=c==='#c9a27a'?MAT.wood(c):new THREE.MeshPhysicalMaterial({color:c,map:FLOORS.find(f=>f.id==='marble').tex,roughness:.15,clearcoat:.8});
+   cy(g,.4,.4,.03,top,0,.42,0,96);for(let i=0;i<3;i++){const a=i/3*Math.PI*2;cy(g,.012,.012,.41,MAT.brushed(),Math.cos(a)*.28,.2,Math.sin(a)*.28,12);}}},
+ tv:{cat:'living',name:'ทีวี 55" + ชั้นวาง',size:'180×40 ซม.',price:18900,colors:['#c9a27a','#2b2b2b','#e9e2d6'],build(c,g){const m=MAT.wood(c);rb(g,1.8,.4,.4,.012,m,0,.26,0);
+   for(const x of[-.6,0,.6])rb(g,.003,.36,.01,.001,MAT.matte('#1d1b19'),x,.26,.201);for(const x of[-.85,.85])for(const z of[-.16,.16])cy(g,.012,.01,.06,MAT.brushed(),x,.03,z,12);
+   rb(g,.32,.02,.2,.006,MAT.brushed(),0,.47,-.05);rb(g,.05,.12,.04,.01,MAT.brushed(),0,.53,-.08);rb(g,1.24,.72,.03,.006,MAT.matte('#121212'),0,1.0,-.06);
+   add(g,new THREE.PlaneGeometry(1.22,.69),new THREE.MeshStandardMaterial({color:'#000',emissive:'#ffffff',emissiveMap:getScreenMap(),emissiveIntensity:.55,roughness:.15,metalness:.2}),0,1.0,-.044);
+   rb(g,.9,.06,.08,.02,MAT.matte('#1b1b1b'),0,.49,.1);}},
+ desk:{cat:'living',name:'โต๊ะทำงาน',size:'120×60 ซม.',price:3490,colors:['#c9a27a','#e9e2d6','#2b2b2b'],build(c,g){const m=MAT.wood(c);rb(g,1.2,.03,.6,.008,m,0,.74,0);
+   for(const x of[-.56,.56])for(const z of[-.26,.26])rb(g,.035,.72,.035,.008,MAT.brushed(),x,.36,z);
+   rb(g,.2,.012,.15,.004,MAT.brushed(),0,.76,-.17);rb(g,.04,.2,.03,.01,MAT.brushed(),0,.86,-.18);rb(g,.62,.37,.025,.005,MAT.matte('#121212'),0,1.06,-.16);
+   add(g,new THREE.PlaneGeometry(.6,.34),new THREE.MeshStandardMaterial({color:'#000',emissive:'#ffffff',emissiveMap:getScreenMap(),emissiveIntensity:.5}),0,1.06,-.146);
+   rb(g,.42,.015,.14,.005,MAT.matte('#d9d9d9'),0,.76,.1);lathe(g,[[0,0],[.04,0],[.04,.09],[.037,.09],[.037,.006],[0,.006]],MAT.ceramic('#f4f2ee'),.4,.755,.05,32);}},
+ plant:{cat:'living',name:'ต้นลิ้นมังกร',size:'ø30 ซม.',price:690,colors:['#d8d2c8','#b7643f','#2b2b2b','#f4f2ee'],build(c,g){const r=rng(5);
+   lathe(g,[[0,0],[.11,0],[.15,.05],[.16,.3],[.15,.32],[.14,.31],[0,.29]],new THREE.MeshPhysicalMaterial({color:c,roughness:.55,clearcoat:.3}),0,0,0,48);
+   const greens=['#2f5a32','#3f6b3a','#4b7a40'];
+   for(let i=0;i<14;i++){const hgt=.45+r()*.5,wid=.05+r()*.03,s=new THREE.Shape();s.moveTo(-wid/2,0);s.quadraticCurveTo(-wid*.75,hgt*.55,0,hgt);s.quadraticCurveTo(wid*.75,hgt*.55,wid/2,0);s.lineTo(-wid/2,0);
+     const lf=add(g,new THREE.ShapeGeometry(s,8),MAT.leaf(greens[i%3]),(r()-.5)*.14,.3,(r()-.5)*.14);lf.rotation.set((r()-.5)*.35,r()*Math.PI,(r()-.5)*.35);}}},
+ lamp:{cat:'living',name:'โคมไฟตั้งพื้น',size:'ø40 ซม.',price:2490,colors:['#f3ead8','#2b2b2b','#c58f4e'],build(c,g){const mt=MAT.brushed();
+   lathe(g,[[0,0],[.16,0],[.16,.015],[.03,.03],[0,.03]],mt,0,0,0,48);cy(g,.01,.01,1.45,mt,0,.75,0,12);
+   const sh=lathe(g,[[.21,0],[.13,.3]],new THREE.MeshStandardMaterial({color:c,emissive:c,emissiveIntensity:.45,side:THREE.DoubleSide,roughness:1,map:fabMap}),0,1.4,0,64);sh.userData.noShadow=true;
+   const l=new THREE.PointLight(0xffd9a0,.5,5,2);l.position.set(0,1.5,0);g.add(l);}},
+ rug:{cat:'living',name:'พรม',size:'200×140 ซม.',price:2490,colors:['#b98b6e','#8d8479','#8e9e86','#c9bba6','#4a4440'],flat:true,build(c,g){
+   const m=new THREE.MeshStandardMaterial({color:c,map:getRugMap(),normalMap:fabN,normalScale:new THREE.Vector2(1.5,1.5),roughness:1});
+   rb(g,2,.014,1.4,.006,m,0,.007,0).userData.noShadow=true;}}
+};
+
+function makeItem(t,{x=0,z=0,r=0,c}={}){const def=CATALOG[t];if(!def)return null;c=c||def.colors[0];
+  const g=new THREE.Group();def.build(c,g);g.userData={t,c};g.position.set(x,0,z);g.rotation.y=r;
+  g.traverse(o=>{if(o.isMesh){o.castShadow=!o.userData.noShadow;o.receiveShadow=true;}});
+  itemsGroup.add(g);clampItem(g);return g;}
+function disposeItem(g){itemsGroup.remove(g);g.traverse(o=>{if(o.geometry)o.geometry.dispose();if(o.material&&o.material.dispose)o.material.dispose();});}
+const _box=new THREE.Box3();
+function clampItem(g){_box.setFromObject(g);const {w,d}=state.room;let dx=0,dz=0;
+  if(_box.max.x-_box.min.x<w){if(_box.min.x<-w/2)dx=-w/2-_box.min.x;else if(_box.max.x>w/2)dx=w/2-_box.max.x;}
+  if(_box.max.z-_box.min.z<d){if(_box.min.z<-d/2)dz=-d/2-_box.min.z;else if(_box.max.z>d/2)dz=d/2-_box.max.z;}
+  g.position.x+=dx;g.position.z+=dz;}
+
+/* ---------- selection & dragging ---------- */
+let selected=null,helper=null;
+function select(g){selected=g;if(helper){scene.remove(helper);helper.geometry.dispose();helper=null;}
+  const bar=$('selbar');if(!g){bar.hidden=true;return;}
+  helper=new THREE.BoxHelper(g,new THREE.Color(cssVar('--accent')||'#8c6e52'));scene.add(helper);
+  const def=CATALOG[g.userData.t];$('selName').textContent=def.name;$('selPrice').textContent=`${def.size} · ≈ ${baht(def.price)}`;
+  $('selColors').innerHTML='';def.colors.forEach(col=>{const b=document.createElement('button');b.className='dot';b.style.background=col;b.title='เปลี่ยนสี';
+    b.setAttribute('aria-pressed',col===g.userData.c);b.onclick=()=>recolor(col);$('selColors').appendChild(b);});
+  bar.hidden=false;}
+function recolor(col){if(!selected)return;const {t}=selected.userData,p=selected.position,r=selected.rotation.y;const n=makeItem(t,{x:p.x,z:p.z,r,c:col});
+  disposeItem(selected);select(n);save();}
+function rotateSel(){if(!selected)return;selected.rotation.y=Math.round((selected.rotation.y+Math.PI/4)/(Math.PI/4))*(Math.PI/4);clampItem(selected);save();}
+function duplicateSel(){if(!selected)return;const u=selected.userData,p=selected.position;const n=makeItem(u.t,{x:p.x+.3,z:p.z+.3,r:selected.rotation.y,c:u.c});select(n);save();}
+function deleteSel(){if(!selected)return;disposeItem(selected);select(null);save();}
+
+const ray=new THREE.Raycaster(),ndc=new THREE.Vector2(),floorPlane=new THREE.Plane(new V(0,1,0),0),hitPt=new V();
+function setNdc(e){const r=canvas.getBoundingClientRect();ndc.set((e.clientX-r.left)/r.width*2-1,-(e.clientY-r.top)/r.height*2+1);ray.setFromCamera(ndc,camera);}
+function pickItem(){const hits=ray.intersectObjects(itemsGroup.children,true);if(!hits.length)return null;let o=hits[0].object;while(o.parent&&o.parent!==itemsGroup)o=o.parent;return o.parent===itemsGroup?o:null;}
+let drag=null,down=null;
+stage.addEventListener('pointerdown',e=>{if(e.target!==canvas)return;down={x:e.clientX,y:e.clientY};setNdc(e);const g=pickItem();
+  if(g){select(g);if(ray.ray.intersectPlane(floorPlane,hitPt)){drag={g,off:new V(g.position.x-hitPt.x,0,g.position.z-hitPt.z)};
+    controls.enabled=false;canvas.setPointerCapture(e.pointerId);canvas.style.cursor='grabbing';}}},true);
+canvas.addEventListener('pointermove',e=>{if(drag){setNdc(e);if(ray.ray.intersectPlane(floorPlane,hitPt)){drag.g.position.x=hitPt.x+drag.off.x;drag.g.position.z=hitPt.z+drag.off.z;clampItem(drag.g);}return;}
+  if(e.pointerType==='mouse'&&!e.buttons){setNdc(e);canvas.style.cursor=pickItem()?'grab':'';}});
+function endDrag(e){if(drag){drag=null;controls.enabled=!photoMode;canvas.style.cursor='';save();return;}
+  if(down&&e.target===canvas&&Math.hypot(e.clientX-down.x,e.clientY-down.y)<5){setNdc(e);if(!pickItem())select(null);}down=null;}
+canvas.addEventListener('pointerup',endDrag);canvas.addEventListener('pointercancel',endDrag);
+window.addEventListener('keydown',e=>{if(/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName))return;
+  if(e.key==='r'||e.key==='R'){rotateSel();}else if(e.key==='Delete'||e.key==='Backspace'){if(selected){e.preventDefault();deleteSel();}}else if(e.key==='Escape')select(null);});
+$('rotBtn').onclick=rotateSel;$('dupBtn').onclick=duplicateSel;$('delBtn').onclick=deleteSel;
+
+/* ---------- camera ---------- */
+let tween=null;
+function flyTo(pos,target){tween={p0:camera.position.clone(),t0:controls.target.clone(),p1:pos,t1:target,s:performance.now(),d:650};}
+function leavePhotoMode(){if(!photoMode)return;photoMode=false;showOriginal=false;controls.enabled=true;camera.fov=45;camera.updateProjectionMatrix();
+  $('photobar').hidden=true;$('hint').textContent='ลากเพื่อหมุน · เลื่อนล้อเพื่อซูม · คลิกของแล้วลากเพื่อย้าย';readScene();applyDisplayMode();resize();}
+function view3d(){leavePhotoMode();const {w,d,h}=state.room,k=Math.max(w,d,3);flyTo(new V(k*.95,h*1.6+k*.35,k*1.25),new V(0,.7,0));setViewBtns('view3d');}
+function viewTop(){leavePhotoMode();const {w,d}=state.room;flyTo(new V(0,Math.max(w,d,2.5)*1.9,0.01),new V(0,0,0));setViewBtns('viewTop');}
+function setViewBtns(id){['viewPhoto','view3d','viewTop'].forEach(b=>$(b).setAttribute('aria-pressed',b===id));}
+$('view3d').onclick=view3d;$('viewTop').onclick=viewTop;$('viewPhoto').onclick=()=>enterPhotoMode();
+$('autoRot').onclick=()=>{if(photoMode)view3d();controls.autoRotate=!controls.autoRotate;$('autoRot').setAttribute('aria-pressed',controls.autoRotate);};
+
+function fitRect(aspect,margin){const r=stage.getBoundingClientRect();let W=r.width*margin,H=r.height*margin;if(W/H>aspect)W=H*aspect;else H=W/aspect;
+  return{x:(r.width-W)/2,y:(r.height-H)/2,w:W,h:H};}
+function resize(){const r=stage.getBoundingClientRect();if(!r.width||!r.height)return;
+  if(photoMode&&photoImg){const f=fitRect(photoImg.naturalWidth/photoImg.naturalHeight,1);renderer.setSize(f.w,f.h,false);
+    Object.assign(canvas.style,{left:f.x+'px',top:f.y+'px',width:f.w+'px',height:f.h+'px'});camera.aspect=f.w/f.h;}
+  else{renderer.setSize(r.width,r.height,false);Object.assign(canvas.style,{left:'0',top:'0',width:'100%',height:'100%'});camera.aspect=r.width/r.height;}
+  camera.updateProjectionMatrix();if(!$('calib').hidden)drawCalib();}
+new ResizeObserver(resize).observe(stage);
+
+function loop(now){requestAnimationFrame(loop);
+  if(!photoMode){if(tween){let t=Math.min(1,(now-tween.s)/tween.d);t=t<.5?2*t*t:1-Math.pow(-2*t+2,2)/2;camera.position.lerpVectors(tween.p0,tween.p1,t);controls.target.lerpVectors(tween.t0,tween.t1,t);if(t>=1)tween=null;}
+    controls.update();}
+  const hideRoom=photoMode&&showOriginal;
+  walls.forEach(wl=>wl.group.visible=!hideRoom&&!wl.out(camera.position));
+  if(ceilMesh)ceilMesh.visible=!hideRoom&&camera.position.y<state.room.h-0.01;
+  if(helper&&selected)helper.update();renderer.render(scene,camera);}
+
+/* ---------- photo → matching camera ---------- */
+/* markDepth: depth of the marked floor rectangle when points 3-4 are not the real front corners (photo taken from the door) */
+let markDepth=null;
+function calibrate(){if(!photoImg||!pts)return false;const W=photoImg.naturalWidth,H=photoImg.naturalHeight,{w,d}=state.room,dm=Math.min(markDepth||d,d);
+  const p=poseFrom(pts,W,H,[[-w/2,-d/2],[w/2,-d/2],[w/2,-d/2+dm],[-w/2,-d/2+dm]],photoF||focalFromCorners(pts,W,H));if(!p||p.C[1]<.2||p.C[1]>8)return false;
+  const{r1,ry,r2}=p,xA=new V(r1[0],ry[0],r2[0]),yA=new V(-r1[1],-ry[1],-r2[1]),zA=new V(-r1[2],-ry[2],-r2[2]);
+  camera.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(xA,yA,zA));camera.position.set(...p.C);
+  camera.fov=2*Math.atan(H/2/p.f)*180/Math.PI;camera.updateProjectionMatrix();return true;}
+function enterPhotoMode(){if(!calibrated)return;photoMode=true;tween=null;controls.autoRotate=false;$('autoRot').setAttribute('aria-pressed',false);
+  controls.enabled=false;scene.background=photoTex;resize();calibrate();
+  $('photobar').hidden=false;$('viewPhoto').hidden=false;setViewBtns('viewPhoto');setOrig(showOriginal);
+  $('hint').textContent='คลิกของแล้วลากเพื่อย้าย · กด “มุม 3D” เพื่อหมุนดูรอบห้อง';}
+function setOrig(v){showOriginal=v;$('modeEmpty').setAttribute('aria-pressed',!v);$('modeOrig').setAttribute('aria-pressed',v);applyDisplayMode();}
+$('modeEmpty').onclick=()=>setOrig(false);$('modeOrig').onclick=()=>setOrig(true);
+
+/* corner-marking overlay */
+const svg=$('calibSvg');let dragK=-1,calibRect=null;
+function openCalib(){if(!photoImg)return;if(!pts)pts=[[.3,.5],[.7,.5],[.9,.95],[.1,.95],[.3,.12]];$('calibMsg').textContent='';$('calib').hidden=false;select(null);drawCalib();}
+function drawCalib(){const f=calibRect=fitRect(photoImg.naturalWidth/photoImg.naturalHeight,.72),img=$('calibImg');
+  Object.assign(img.style,{left:f.x+'px',top:f.y+'px',width:f.w+'px',height:f.h+'px'});
+  const P=pts.map(p=>[f.x+p[0]*f.w,f.y+p[1]*f.h]);let s='';
+  for(let i=0;i<4;i++){const a=P[i],b=P[(i+1)%4],dx=b[0]-a[0],dy=b[1]-a[1];
+    s+=`<line class="guide" x1="${a[0]-dx*3}" y1="${a[1]-dy*3}" x2="${b[0]+dx*3}" y2="${b[1]+dy*3}"/>`;}
+  s+=`<line class="guide" x1="${P[0][0]}" y1="${P[0][1]}" x2="${P[4][0]}" y2="${P[4][1]}" style="stroke:#fff;stroke-dasharray:3 4"/>`;
+  s+=`<polygon class="edge" points="${P.slice(0,4).map(p=>p.join(',')).join(' ')}"/>`;
+  P.forEach((p,i)=>{s+=`<circle class="hit" data-k="${i}" cx="${p[0]}" cy="${p[1]}" r="24"/><circle class="knob${i===4?' ceil':''}" data-k="${i}" cx="${p[0]}" cy="${p[1]}" r="11"/><text x="${p[0]-4}" y="${p[1]+5}">${i+1}</text>`;});
+  svg.innerHTML=s;}
+svg.addEventListener('pointerdown',e=>{const k=e.target.getAttribute&&e.target.getAttribute('data-k');if(k===null||k===undefined)return;dragK=+k;svg.setPointerCapture(e.pointerId);e.preventDefault();});
+svg.addEventListener('pointermove',e=>{if(dragK<0)return;const r=stage.getBoundingClientRect(),f=calibRect;
+  const nx=(e.clientX-r.left-f.x)/f.w,ny=(e.clientY-r.top-f.y)/f.h;pts[dragK]=[Math.max(-.2,Math.min(1.2,nx)),Math.max(-.2,Math.min(1.2,ny))];drawCalib();});
+const endK=()=>{dragK=-1;};svg.addEventListener('pointerup',endK);svg.addEventListener('pointercancel',endK);
+$('calibCancel').onclick=()=>{$('calib').hidden=true;};
+$('calibGo').onclick=()=>{const W=photoImg.naturalWidth,H=photoImg.naturalHeight;
+  const prev={room:{...state.room},size:{...state.size},f:photoF,md:markDepth};
+  if($('estChk').checked){const camH=Math.max(.5,Math.min(2.5,+$('camH').value||1.45)),est=estimateRoom(pts,W,H,camH);
+    const ok=est&&est.w>=1&&est.w<=12&&est.d>=1&&est.d<=12;
+    if(!ok){$('calibMsg').textContent=' ประมาณขนาดไม่ได้ ลองเรียงจุด 1→4 ใหม่ หรือเอาเครื่องหมายออกแล้วกรอกขนาดเอง';return;}
+    const cl=(v,a,b)=>Math.max(a,Math.min(b,v)),atDoor=$('atDoor').checked;
+    const D=atDoor?Math.max(est.d,est.camZ+est.d/2+0.1):est.d;markDepth=atDoor?est.d:null;
+    state.room={w:+cl(est.w,1.2,10).toFixed(2),d:+cl(D,1.2,10).toFixed(2),h:+cl(est.h,2.2,4).toFixed(2)};state.size={src:'photo',camH};photoF=est.f;
+    syncRanges();buildRoom();itemsGroup.children.forEach(clampItem);}
+  else{photoF=null;markDepth=null;state.size={src:'manual'};}
+  if(!calibrate()){state.room=prev.room;state.size=prev.size;photoF=prev.f;markDepth=prev.md;syncRanges();buildRoom();
+    $('calibMsg').textContent=' คำนวณมุมกล้องไม่ได้ ลองเรียงจุดตามลำดับ 1 ซ้ายใน → 2 ขวาใน → 3 ขวาหน้า → 4 ซ้ายหน้า';return;}
+  const first=!calibrated;calibrated=true;$('calib').hidden=true;
+  if(first&&picked){state.wallColor=picked.wall;applyWalls();}
+  updateDims();save();enterPhotoMode();};
+$('recalib').onclick=openCalib;$('openCalib').onclick=openCalib;
+
+/* ---------- panel UI ---------- */
+document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{document.querySelectorAll('.tabs button').forEach(x=>x.setAttribute('aria-selected',x===b));
+  ['room','floor','wall','decor','sum'].forEach(t=>$('pane-'+t).hidden=t!==b.dataset.tab);});
+
+function swatch(p,on,sub,fn){const b=document.createElement('button');b.className='sw';b.setAttribute('aria-pressed',on);b.innerHTML=`<img alt=""><span></span><small></small>`;
+  b.querySelector('img').src=p.thumb;b.querySelector('span').textContent=p.name;b.querySelector('small').textContent=sub;b.onclick=fn;return b;}
+function floorPriceLabel(f){return f.price.m2?`${baht(f.price.m2)}/ตร.ม.`:`${baht(f.price.labor)}/ตร.ม. รวมแรง`;}
+function wallPriceLabel(p){const q=p.price;return q.kind==='paint'?`${baht(PAINT.gallon)}/แกลลอน`:q.kind==='roll'?`${baht(q.roll)}/ม้วน`:`${baht(q.m2)}/ตร.ม.`;}
+function renderFloorSwatches(){const box=$('floorSw');box.innerHTML='';FLOORS.forEach(f=>box.appendChild(swatch(f,f.id===state.floor,floorPriceLabel(f),()=>{state.floor=f.id;applyFloor();save();})));}
+function renderWallUI(){const box=$('wallSw');box.innerHTML='';WALLS.forEach(p=>box.appendChild(swatch(p,p.id===state.wallPat,wallPriceLabel(p),()=>{state.wallPat=p.id;applyWalls();save();})));
+  const pb=$('paints');pb.innerHTML='';const list=picked&&!PAINTS.includes(picked.wall)?[picked.wall,...PAINTS]:PAINTS;
+  list.forEach(c=>{const b=document.createElement('button');b.className='dot';b.style.background=c;b.title=c===(picked&&picked.wall)?'สีเดิมจากรูป':c;
+    b.setAttribute('aria-pressed',c===state.wallColor);b.onclick=()=>{state.wallColor=c;applyWalls();save();};pb.appendChild(b);});
+  const ci=document.createElement('input');ci.type='color';ci.id='wallPicker';ci.value=state.wallColor;ci.title='เลือกสีเอง';
+  ci.oninput=()=>{state.wallColor=ci.value;wallMats.forEach(m=>m.color.set(ci.value));};ci.onchange=()=>{applyWalls();save();};pb.appendChild(ci);}
+
+/* ---------- bill of quantities ---------- */
+const rows=list=>list.map(r=>r===null?'<span class="hr"></span>':`<span class="${r[2]||''}">${r[0]}</span><span class="${r[2]||''}">${r[1]}</span>`).join('');
+const n1=v=>v.toLocaleString('th-TH',{maximumFractionDigits:1,minimumFractionDigits:1});
+function renderSummary(){if(!itemsGroup)return;const {w,d,h}=state.room,floorA=w*d,perim=2*(w+d),wallA=Math.max(0,perim*h-1.6);let total=0;
+  $('sumRoom').innerHTML=rows([['กว้าง × ยาว × สูง',`${w.toFixed(2)} × ${d.toFixed(2)} × ${h.toFixed(2)} ม.`],['พื้นที่พื้น / ฝ้า',`${n1(floorA)} ตร.ม.`],
+    ['พื้นที่ผนัง (หักประตู)',`${n1(wallA)} ตร.ม.`],['ความยาวบัวพื้น',`${n1(perim-.8)} ม.`],['ปริมาตรห้อง',`${n1(floorA*h)} ลบ.ม.`],
+    ['ที่มาของขนาด',state.size.src==='photo'?'ประมาณจากรูป':state.size.src==='manual'?'กรอกเอง':'ตัวอย่าง','sub']]);
+  /* floor */
+  const f=floorDef(),fp=f.price,s=state.floorScale,need=floorA*1.1;const fr=[[f.name,'']];let fc=0;
+  if(f.dims){const ta=(f.area||f.dims[0]*f.dims[1]/1e4)*s*s,pcs=Math.ceil(need/ta),boxes=Math.ceil(need/(fp.box*s*s));
+    fr.push(['ขนาดแผ่น',f.id==='hex'?`หกเหลี่ยม ${Math.round(f.dims[0]*s)} ซม.`:`${Math.round(f.dims[0]*s)}×${Math.round(f.dims[1]*s)} ซม.`,'sub'],
+      ['ปริมาณ (เผื่อ 10%)',`${n1(need)} ตร.ม.`],['จำนวนแผ่น',`${pcs.toLocaleString('th-TH')} แผ่น ≈ ${boxes} กล่อง`]);
+    const mat=need*fp.m2,lab=floorA*fp.labor;fc=mat+lab;fr.push(['ค่าวัสดุ',baht(mat)],['ค่าแรงปู',baht(lab)]);
+    if(f.id!=='oak'&&f.id!=='chevron'){const bags=Math.ceil(floorA/4),gk=Math.ceil(floorA*.4);fr.push(['ปูนกาว 20 กก.',`${bags} ถุง · ${baht(bags*250)}`],['ยาแนว 1 กก.',`${gk} ถุง · ${baht(gk*60)}`]);fc+=bags*250+gk*60;}
+    else{const foam=Math.ceil(floorA*1.05);fr.push(['แผ่นโฟมรองพื้น',`${foam} ตร.ม. · ${baht(foam*35)}`]);fc+=foam*35;}}
+  else{fc=floorA*fp.labor;fr.push(['งานฉาบทั้งผืน',`${n1(floorA)} ตร.ม.`],['ค่าวัสดุ + ค่าแรง',baht(fc)]);}
+  const sk=perim-.8;fr.push(['บัวพื้น',`${Math.ceil(sk/2.4)} เส้น (2.4 ม.) · ${baht(Math.ceil(sk/2.4)*180)}`]);fc+=Math.ceil(sk/2.4)*180;
+  fr.push(null,['รวมงานพื้น',baht(fc)]);$('sumFloor').innerHTML=rows(fr);total+=fc;
+  /* walls */
+  const p=wallDef(),q=p.price,wr=[[p.name,'']];let wc=0;
+  if(q.kind==='paint'){const gal=Math.ceil(wallA*PAINT.coats/PAINT.cover),pri=Math.ceil(wallA/40);wc=gal*PAINT.gallon+pri*900+wallA*PAINT.labor;
+    wr.push(['สีทาภายใน 2 รอบ',`${gal} แกลลอน · ${baht(gal*PAINT.gallon)}`],['สีรองพื้น',`${pri} แกลลอน · ${baht(pri*900)}`],['ค่าแรงทาสี',baht(wallA*PAINT.labor)]);}
+  else if(q.kind==='roll'){const rolls=Math.ceil(wallA*1.1/q.rollM2);wc=rolls*q.roll+wallA*80;wr.push(['วอลเปเปอร์ (ม้วน 0.53×10 ม.)',`${rolls} ม้วน · ${baht(rolls*q.roll)}`],['ค่าแรงติด',baht(wallA*80)]);}
+  else if(q.kind==='area'){wc=wallA*q.m2;wr.push([q.label,`${n1(wallA)} ตร.ม. · ${baht(wc)}`]);}
+  else{const needW=wallA*1.1,pcs=Math.ceil(needW/q.tile),boxes=Math.ceil(needW/q.box),bags=Math.ceil(wallA/4),gk=Math.ceil(wallA*.3);
+    wc=needW*q.m2+wallA*q.labor+bags*250+gk*60;
+    wr.push(['ปริมาณ (เผื่อ 10%)',`${n1(needW)} ตร.ม.`],['จำนวน',`${pcs.toLocaleString('th-TH')} ${q.tileLabel||'แผ่น'} ≈ ${boxes} กล่อง`],['ค่าวัสดุ',baht(needW*q.m2)],
+      ['ค่าแรงปู',baht(wallA*q.labor)],['ปูนกาว + ยาแนว',`${bags} + ${gk} ถุง · ${baht(bags*250+gk*60)}`]);}
+  wr.push(null,['รวมงานผนัง',baht(wc)]);$('sumWall').innerHTML=rows(wr);total+=wc;
+  /* items */
+  const cnt={};itemsGroup.children.forEach(g=>{cnt[g.userData.t]=(cnt[g.userData.t]||0)+1;});let ic=0;const ir=[];
+  Object.entries(cnt).forEach(([t,n])=>{const def=CATALOG[t];ic+=def.price*n;ir.push([`${def.name} × ${n}`,baht(def.price*n)]);});
+  if(!ir.length)ir.push(['ยังไม่มีของในห้อง','–','sub']);ir.push(null,['รวมของแต่ง',baht(ic)]);$('sumItems').innerHTML=rows(ir);total+=ic;
+  $('sumTotal').textContent=baht(total);$('sumTotalNote').textContent=`พื้น ${baht(fc)} · ผนัง ${baht(wc)} · ของ ${baht(ic)}`;
+  $('dimsLabel').textContent=`${w.toFixed(2)} × ${d.toFixed(2)} × ${h.toFixed(2)} ม. · ${n1(floorA)} ตร.ม. · งบ ≈ ${baht(total)}`;}
+
+function bindRange(id,get,set){const el=$(id),out=$(id+'o');const show=()=>out.textContent=id==='fs'?Math.round(get()*100)+'%':get().toFixed(2)+' ม.';
+  el.value=get();show();el.oninput=()=>{set(+el.value);show();};}
+function syncRanges(){const man=fn=>v=>{state.size={src:'manual'};fn(v);roomChanged();};
+  bindRange('rw',()=>state.room.w,man(v=>state.room.w=v));bindRange('rd',()=>state.room.d,man(v=>state.room.d=v));bindRange('rh',()=>state.room.h,man(v=>state.room.h=v));}
+let roomTimer;
+function roomChanged(){buildRoom();itemsGroup.children.forEach(clampItem);if(photoMode)calibrate();clearTimeout(roomTimer);roomTimer=setTimeout(save,300);}
+bindRange('fs',()=>state.floorScale,v=>{state.floorScale=v;applyFloor();save();});
+document.querySelectorAll('[data-preset]').forEach(b=>b.onclick=()=>{const [w,d,h]=b.dataset.preset.split(',').map(Number);state.room={w,d,h};state.size={src:'preset'};syncRanges();roomChanged();if(!photoMode)view3d();});
+
+Object.entries(CATALOG).forEach(([t,def])=>{const b=document.createElement('button');b.className='item';b.innerHTML=`<b></b><small></small>`;
+  b.querySelector('b').textContent=def.name;b.querySelector('small').textContent=`${def.size} · ${baht(def.price)}`;
+  b.onclick=()=>{const n=makeItem(t,{x:(Math.random()-.5)*.4,z:(Math.random()-.5)*.4});select(n);save();};
+  $(def.cat==='bath'?'catalogBath':'catalogLiving').appendChild(b);});
+$('clearBtn').onclick=()=>{const b=$('clearBtn');if(!b.classList.contains('armed')){b.classList.add('armed');b.textContent='กดอีกครั้งเพื่อยืนยัน';
+    setTimeout(()=>{b.classList.remove('armed');b.textContent='ล้างของทั้งหมด';},3000);return;}
+  b.classList.remove('armed');b.textContent='ล้างของทั้งหมด';select(null);itemsGroup.children.slice().forEach(disposeItem);save();};
+
+/* ---------- photos ---------- */
+function readImage(file,cb){if(!file||!/^image\//.test(file.type))return;const fr=new FileReader();fr.onload=()=>{const img=new Image();img.onload=()=>cb(img,fr.result);img.src=fr.result;};fr.readAsDataURL(file);}
+function avgColor(ctx,x,y,w,h){const d=ctx.getImageData(x,y,w,h).data;let r=0,g=0,b=0,n=0;for(let i=0;i<d.length;i+=4){r+=d[i];g+=d[i+1];b+=d[i+2];n++;}
+  return '#'+[r,g,b].map(v=>Math.round(v/n).toString(16).padStart(2,'0')).join('');}
+function onRoomPhoto(img,url){photoImg=img;$('photoThumb').src=url;$('calibImg').src=url;
+  $('photoBox').hidden=false;$('pickedBox').hidden=false;$('photoActions').hidden=false;
+  const c=mkCanvas(64,64),x=c.getContext('2d');x.drawImage(img,0,0,64,64);picked={floor:avgColor(x,4,50,56,14),wall:avgColor(x,4,6,56,22)};
+  $('pickFloor').style.background=picked.floor;$('pickWall').style.background=picked.wall;
+  if(photoTex)photoTex.dispose();photoTex=new THREE.Texture(img);photoTex.encoding=THREE.sRGBEncoding;photoTex.needsUpdate=true;
+  leavePhotoMode();calibrated=false;pts=null;photoF=null;markDepth=null;$('viewPhoto').hidden=true;setViewBtns('view3d');renderWallUI();openCalib();}
+$('photoInput').onchange=e=>{readImage(e.target.files[0],onRoomPhoto);e.target.value='';};
+const drop=$('drop');['dragenter','dragover'].forEach(t=>drop.addEventListener(t,e=>{e.preventDefault();drop.classList.add('over');}));
+['dragleave','drop'].forEach(t=>drop.addEventListener(t,e=>{e.preventDefault();drop.classList.remove('over');}));
+drop.addEventListener('drop',e=>readImage(e.dataTransfer.files[0],onRoomPhoto));
+$('useColors').onclick=()=>{if(!picked)return;state.wallColor=picked.wall;state.wallPat='plain';state.floor='concrete';state.floorTint=picked.floor;applyWalls();applyFloor();save();};
+$('floorInput').onchange=e=>readImage(e.target.files[0],img=>{const c=mkCanvas(1024,1024),x=c.getContext('2d'),s=Math.min(img.width,img.height);
+  x.drawImage(img,(img.width-s)/2,(img.height-s)/2,s,s,0,0,1024,1024);let f=FLOORS.find(q=>q.id==='custom');
+  if(f){[f.tex,f.ntex,f.rtex].forEach(t=>t.dispose());}else{f={id:'custom',name:'ลายของฉัน',unit:[0.6,0.6],dims:[60,60],price:{m2:500,box:1.44,labor:350},rough:[.3,.8],ns:.6,coat:.3,relief:'luma'};FLOORS.push(f);}
+  f.canvas=c;buildSurface(f);state.floor='custom';applyFloor();save();});
+
+/* ---------- boot ---------- */
+readScene();syncRanges();buildRoom();
+state.items.forEach(it=>makeItem(it.t,it));
+save();resize();
+{const {w,d,h}=state.room,k=Math.max(w,d,3);camera.position.set(k*.95,h*1.6+k*.35,k*1.25);controls.target.set(0,.7,0);}
+requestAnimationFrame(loop);
+})();
+</script>
