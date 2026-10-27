@@ -38,6 +38,30 @@ export interface Structure {
   extras: Map<number, THREE.Group>;
   segs: Map<number, Segment[]>;
   top: number;
+  /** shadow-only copies (layer 1) that keep casting while the visible parts are cut away or lifted */
+  shadows: THREE.Group;
+  /** inside-face wall material of each room (for per-room daylight) */
+  roomMats: Map<string, THREE.Material>;
+}
+
+/** Layer that only the shadow pass sees. */
+export const SHADOW_LAYER = 1;
+
+/** A shadow-casting copy of an object on the shadow layer; the original stops casting. */
+export function shadowProxy(o: THREE.Object3D) {
+  const c = o.clone();
+  c.traverse((n) => {
+    n.layers.set(SHADOW_LAYER);
+    const m = n as THREE.Mesh;
+    if (m.isMesh) {
+      m.castShadow = !m.userData.noShadow;
+      m.receiveShadow = false;
+    }
+  });
+  o.traverse((n) => {
+    if ((n as THREE.Mesh).isMesh) n.castShadow = false;
+  });
+  return c;
 }
 
 const lookup = (t: string) => catalogById.get(t);
@@ -90,6 +114,7 @@ function beam(p0: THREE.Vector3, p1: THREE.Vector3, r: number, mat: THREE.Materi
 export function buildStructure(house: House): Structure {
   const ext: Exterior = { ...DEFAULT_EXT, ...house.ext };
   const group = new THREE.Group();
+  const shadows = new THREE.Group();
   const rooms = house.rooms;
   const levels = levelsOf(rooms);
   const indoor = rooms.filter((r) => !r.outdoor);
@@ -165,6 +190,7 @@ export function buildStructure(house: House): Structure {
         pieces.push({ mesh: m, y0, h: ph });
       }
       group.add(g);
+      shadows.add(shadowProxy(g));
       const mid = (s.s0 + s.s1) / 2;
       const centre = s.axis === 'x' ? new THREE.Vector3(mid, levelY(l) + H / 2, s.c) : new THREE.Vector3(s.c, levelY(l) + H / 2, mid);
       const out = o === 0 ? null : s.axis === 'x' ? new THREE.Vector3(0, 0, o) : new THREE.Vector3(o, 0, 0);
@@ -225,7 +251,10 @@ export function buildStructure(house: House): Structure {
       }
     }
   }
-  for (const g of extras.values()) shadowed(g);
+  for (const g of extras.values()) {
+    shadowed(g);
+    shadows.add(shadowProxy(g));
+  }
 
   /* ---------------- roof ---------------- */
   const roof = new THREE.Group();
@@ -233,12 +262,14 @@ export function buildStructure(house: House): Structure {
   if (plan && ext.roof !== 'none') buildRoof(roof, plan, ext, extMat);
   shadowed(roof);
   group.add(roof);
+  shadows.add(shadowProxy(roof));
 
   /* ---------------- site ---------------- */
   const site = buildSite(house, ext, extMat);
   group.add(site);
 
-  return { group, walls, roof, site, extras, segs, top };
+  group.add(shadows);
+  return { group, walls, roof, site, extras, segs, top, shadows, roomMats };
 }
 
 type Plan = NonNullable<ReturnType<typeof roofPlan>>;

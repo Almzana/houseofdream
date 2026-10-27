@@ -8,7 +8,7 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
-import { catalogById } from '../data/catalog';
+import { catalogById, type CatalogItem } from '../data/catalog';
 import { floorById } from '../data/surfaces';
 import type { House, Item, Quality, Room, ViewMode, WallMode } from '../types';
 import { inRoom, levelY } from '../lib/shell';
@@ -16,7 +16,7 @@ import { kelvinRGB } from '../lib/kelvin';
 import { buildModel, disposeModel } from './models';
 import { setAnisotropy, surfaceSet } from './textures';
 import { ctx2d, mkCanvas } from './canvas';
-import { LOW, buildStructure, type Structure, type WallView } from './structure';
+import { LOW, buildStructure, shadowProxy, type Structure, type WallView } from './structure';
 import { Walker } from './walk';
 import type { Pose } from '../lib/pose';
 
@@ -36,14 +36,32 @@ interface RoomView {
   floorMat: THREE.MeshPhysicalMaterial;
   ceiling: THREE.Mesh | null;
   label: THREE.Sprite;
+  /** shadow-only copy of an upper floor's slab (kept casting while that storey is hidden) */
+  proxy?: THREE.Object3D;
 }
 interface ItemView {
   key: string;
   item: Item;
   group: THREE.Group;
-  light?: THREE.PointLight | THREE.SpotLight;
+  spec?: NonNullable<CatalogItem['light']>;
+  lampPos?: THREE.Vector3;
+  lampAim?: THREE.Vector3;
   glow?: THREE.MeshStandardMaterial[];
 }
+/** A light source as data; the light pool turns the most relevant ones into real lights. */
+interface Lamp {
+  id: string;
+  kind: 'point' | 'spot';
+  pos: THREE.Vector3;
+  aim: THREE.Vector3;
+  angle: number;
+  level: number;
+  power: number;
+  color: THREE.Color;
+  distance: number;
+}
+const POOL_POINT = 10;
+const POOL_SPOT = 4;
 
 const UP = new THREE.Vector3(0, 1, 0);
 const tmp = new THREE.Vector3();
@@ -66,8 +84,8 @@ export class Engine {
   private sky = new Sky();
   private night = false;
   private nightBg = new THREE.Color('#0d1322');
-  private roomLights = new THREE.Group();
   private roomsGroup = new THREE.Group();
+  private roomShadows = new THREE.Group();
   private itemsGroup = new THREE.Group();
   private rooms = new Map<string, RoomView>();
   private items = new Map<string, ItemView>();
@@ -117,11 +135,13 @@ export class Engine {
     this.host = host;
     this.ev = ev;
     const r = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
-    r.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    r.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
     r.toneMapping = THREE.ACESFilmicToneMapping;
     r.toneMappingExposure = 0.9;
     r.shadowMap.enabled = true;
-    r.shadowMap.type = THREE.PCFSoftShadowMap;
+    r.shadowMap.autoUpdate = false;
+    // filtered PCF: soft enough edges at a fraction of PCFSoft's cost
+    r.shadowMap.type = THREE.PCFShadowMap;
     r.autoClear = false;
     this.renderer = r;
     setAnisotropy(Math.min(8, r.capabilities.getMaxAnisotropy()));
@@ -147,8 +167,10 @@ export class Engine {
     this.sun.shadow.mapSize.set(2048, 2048);
     this.sun.shadow.bias = -0.0004;
     this.sun.shadow.normalBias = 0.02;
+    this.sun.shadow.radius = 2.5;
 
-    this.scene.add(this.sun, this.sun.target, this.roomsGroup, this.itemsGroup, this.roomLights, this.lampGroup);
+    this.scene.add(this.sun, this.sun.target, this.roomsGroup, this.itemsGroup, this.roomShadows);
+    this.buildPool();
 
     const c = new OrbitControls(this.camera, r.domElement);
     c.enableDamping = true;
@@ -185,7 +207,7 @@ export class Engine {
     this.ao.updateGtaoMaterial({ radius: 0.45, distanceExponent: 1.6, thickness: 1.2, scale: 1, samples: 16 });
     this.ao.updatePdMaterial({ lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: 6, rings: 2, samples: 16 });
     this.composer.addPass(this.ao);
-    this.bloom = new UnrealBloomPass(new THREE.Vector2(2, 2), 0.22, 0.45, 0.95);
+    this.bloom = new UnrealBloomPass(new THREE.Vector2(2, 2), 0.22, 0.3, 0.95);
     this.composer.addPass(this.bloom);
     this.composer.addPass(new OutputPass());
     this.setTime(15);
@@ -214,7 +236,8 @@ export class Engine {
   }
 
   setQuality(q: Quality) {
-    this.renderer.setPixelRatio(q === 'high' ? Math.min(window.devicePixelRatio || 1, 2) : 1);
+    // beyond 1.5× the extra pixels cost far more than they show
+    this.renderer.setPixelRatio(q === 'high' ? Math.min(window.devicePixelRatio || 1, this.pixelCap) : Math.min(1, this.pixelCap));
     this.renderer.shadowMap.enabled = q === 'high';
     this.fx = q === 'high';
     this.scene.traverse((o) => {
@@ -241,6 +264,8 @@ export class Engine {
     this.stopRealistic(true);
     const was = this.mode;
     this.mode = m;
+    this.assignPool(true);
+    this.markShadows();
     if (was === 'walk') this.exitWalk();
     if (m === 'walk') this.enterWalk();
     const lift = m === 'inside' ? 1 : 0;
@@ -250,6 +275,8 @@ export class Engine {
 
   setLevel(l: number) {
     this.level = l;
+    this.assignPool(true);
+    this.markShadows();
     this.invalidate();
   }
 
@@ -262,11 +289,11 @@ export class Engine {
     this.sky.material.uniforms.sunPosition.value.copy(this.sunDir);
     const day = smooth(-0.06, 0.3, sinE);
     const low = smooth(0, 0.45, sinE);
-    this.sun.intensity = 2.6 * smooth(0, 0.18, sinE);
+    this.sun.intensity = 3.1 * smooth(0, 0.18, sinE);
     this.sun.color.set('#ff9b5c').lerp(new THREE.Color('#fff1dc'), low);
-    this.hemi.intensity = 0.06 + 0.5 * day;
+    this.hemi.intensity = 0.03 + 0.12 * day;
     this.hemi.color.set('#40507a').lerp(new THREE.Color('#ffffff'), day);
-    this.scene.environmentIntensity = 0.04 + 0.51 * day;
+    this.scene.environmentIntensity = 0.04 + 0.72 * day;
     const fog = this.scene.fog as THREE.Fog;
     fog.color.copy(this.nightBg).lerp(new THREE.Color(low > 0.2 ? '#aebdc4' : '#d9a988'), day);
     this.sky.visible = sinE > -0.12;
@@ -291,34 +318,57 @@ export class Engine {
     });
   }
 
-  /** A real light source for a lamp item, from its catalogue spec. */
+  /* ---------------------------------------------------------------- lamps */
+  // Every lamp is plain data. A fixed pool of real lights is handed to the lamps that matter
+  // most for the current view (nearest the focus, on a visible storey): a constant light count
+  // means no shader recompiles and keeps per-pixel lighting cheap however many lamps exist.
+  private lamps: Lamp[] = [];
+  private roomLamps: Lamp[] = [];
+  private poolGroup = new THREE.Group();
+  private poolPoint: THREE.PointLight[] = [];
+  private poolSpot: THREE.SpotLight[] = [];
+  /** the selected lamp is given one of these so its shadows show where its light falls */
+  private shadowPoint = new THREE.PointLight(0xffffff, 0, 8, 2);
+  private shadowSpot = new THREE.SpotLight(0xffffff, 0, 9, 0.6, 0.55, 2);
+  private poolFocus = new THREE.Vector3(1e9, 0, 0);
+  private poolSel = '';
+
+  private buildPool() {
+    const add = (l: THREE.PointLight | THREE.SpotLight) => {
+      l.power = 0;
+      this.poolGroup.add(l);
+      if ((l as THREE.SpotLight).isSpotLight) this.poolGroup.add((l as THREE.SpotLight).target);
+    };
+    for (let i = 0; i < POOL_POINT; i++) {
+      const l = new THREE.PointLight(0xffffff, 0, 8, 2);
+      this.poolPoint.push(l);
+      add(l);
+    }
+    for (let i = 0; i < POOL_SPOT; i++) {
+      const l = new THREE.SpotLight(0xffffff, 0, 9, 0.6, 0.55, 2);
+      this.poolSpot.push(l);
+      add(l);
+    }
+    const sp = this.shadowPoint, ss = this.shadowSpot;
+    sp.castShadow = ss.castShadow = true;
+    sp.shadow.mapSize.set(512, 512);
+    sp.shadow.bias = -0.002;
+    sp.shadow.camera.near = 0.05;
+    ss.shadow.mapSize.set(1024, 1024);
+    ss.shadow.bias = -0.0006;
+    ss.shadow.normalBias = 0.02;
+    ss.shadow.camera.near = 0.05;
+    ss.shadow.camera.far = 8;
+    add(sp);
+    add(ss);
+    this.scene.add(this.poolGroup);
+  }
+
+  /** Remember a lamp item's spec and the glowing parts of its model. */
   private attachLight(v: ItemView) {
     const spec = catalogById.get(v.item.t)?.light;
     if (!spec) return;
-    const [x, y, z] = spec.at;
-    let l: THREE.PointLight | THREE.SpotLight;
-    if (spec.kind === 'spot') {
-      const s = new THREE.SpotLight(0xffffff, 1, 9, spec.angle ?? 0.6, 0.55, 2);
-      const [ax, ay, az] = spec.aim ?? [x, 0, z];
-      s.userData.aim = new THREE.Vector3(ax, ay, az);
-      this.lampGroup.add(s.target);
-      s.shadow.mapSize.set(1024, 1024);
-      s.shadow.bias = -0.0006;
-      s.shadow.normalBias = 0.02;
-      s.shadow.camera.near = 0.05;
-      s.shadow.camera.far = 8;
-      l = s;
-    } else {
-      l = new THREE.PointLight(0xffffff, 1, 10, 2);
-      l.shadow.mapSize.set(512, 512);
-      l.shadow.bias = -0.002;
-      l.shadow.camera.near = 0.05;
-    }
-    // lights live outside the item so hiding a storey never changes the light count (no shader recompiles)
-    l.userData.at = new THREE.Vector3(x, y, z);
-    l.userData.level = lvl(v.item);
-    this.lampGroup.add(l);
-    v.light = l;
+    v.spec = spec;
     v.glow = [];
     v.group.traverse((o) => {
       const m = (o as THREE.Mesh).material as THREE.MeshStandardMaterial | undefined;
@@ -329,61 +379,91 @@ export class Engine {
     });
   }
 
-  /** Place a lamp's light where its fixture is (lights are kept in world space). */
+  /** World position (and aim) of a lamp's light, following its fixture. */
   private syncLight(v: ItemView) {
-    const l = v.light;
-    if (!l) return;
+    if (!v.spec) return;
     v.group.updateMatrixWorld();
-    l.position.copy(l.userData.at).applyMatrix4(v.group.matrixWorld);
-    l.userData.level = lvl(v.item);
-    if ((l as THREE.SpotLight).isSpotLight) (l as THREE.SpotLight).target.position.copy(l.userData.aim).applyMatrix4(v.group.matrixWorld);
-    l.updateMatrixWorld();
+    const [x, y, z] = v.spec.at;
+    const [ax, ay, az] = v.spec.aim ?? [x, 0, z];
+    (v.lampPos ??= new THREE.Vector3()).set(x, y, z).applyMatrix4(v.group.matrixWorld);
+    (v.lampAim ??= new THREE.Vector3()).set(ax, ay, az).applyMatrix4(v.group.matrixWorld);
   }
-
-  private dropLight(v: ItemView) {
-    const l = v.light;
-    if (!l) return;
-    if ((l as THREE.SpotLight).isSpotLight) this.lampGroup.remove((l as THREE.SpotLight).target);
-    this.lampGroup.remove(l);
-    l.dispose();
-    v.light = undefined;
-  }
-
-  private lampGroup = new THREE.Group();
 
   /** Lamp brightness/colour from each item's lumens and colour temperature. */
   private applyLights() {
     // by day lamps add almost nothing next to the sun, so skip their cost until dusk
-    this.lampGroup.visible = this.nightness > 0.3 || !!this.pt;
+    this.poolGroup.visible = this.nightness > 0.3 && !this.pt;
     // eye adaptation: lamps matter at night, barely in daylight
     const k = 0.3 * (0.14 + 0.86 * this.nightness);
     const lit = new Set<string>();
+    this.lamps = [];
     this.items.forEach((v) => {
-      if (!v.light) return;
-      const spec = catalogById.get(v.item.t)!.light!;
+      const spec = v.spec;
+      if (!spec) return;
       const on = !v.item.off;
       const lm = v.item.lm ?? spec.lm;
       const [r, g, b] = kelvinRGB(v.item.k ?? 3000);
-      v.light.color.setRGB(r / 255, g / 255, b / 255, THREE.SRGBColorSpace);
-      // three.js gives a spot the intensity power/π (a point light gets power/4π): scale so equal lumens look equal
-      const kind = (v.light as THREE.SpotLight).isSpotLight ? 0.3 : 1;
-      v.light.userData.power = on ? lm * k * kind : 0;
+      const color = new THREE.Color().setRGB(r / 255, g / 255, b / 255, THREE.SRGBColorSpace);
       for (const m of v.glow ?? []) {
-        m.emissive.setRGB(r / 255, g / 255, b / 255, THREE.SRGBColorSpace);
+        m.emissive.copy(color);
         m.emissiveIntensity = on ? (m.userData.glow as number) * Math.min(2, lm / spec.lm) : 0;
       }
-      if (on) {
-        const room = this.house.rooms.find((o) => !o.outdoor && lvl(o) === lvl(v.item) && inRoom(o, v.item.x, v.item.z));
-        if (room) lit.add(room.id);
-      }
+      if (!on || !v.lampPos) return;
+      const room = this.house.rooms.find((o) => !o.outdoor && lvl(o) === lvl(v.item) && inRoom(o, v.item.x, v.item.z));
+      if (room) lit.add(room.id);
+      // three.js gives a spot the intensity power/π (a point light gets power/4π): scale so equal lumens look equal
+      this.lamps.push({
+        id: v.item.id, kind: spec.kind, pos: v.lampPos, aim: v.lampAim!, angle: spec.angle ?? 0.6, level: lvl(v.item),
+        power: lm * k * (spec.kind === 'spot' ? 0.3 : 1), color,
+        // keep each light's reach to about its room so it doesn't glow through walls into the next one
+        distance: room ? Math.min(8, Math.max(room.w, room.d) * 0.9 + 1.5) : 6,
+      });
     });
-    // rooms without any lamp of their own get a plain ceiling light
-    this.roomLights.children.forEach((l) => {
-      const p = l as THREE.PointLight;
-      p.userData.power = lit.has(p.userData.room) || !this.night ? 0 : 1600 * k;
-    });
-    this.pt?.updateLights();
+    // rooms without any lamp of their own get a plain ceiling light at night
+    if (this.night) for (const rl of this.roomLamps) if (!lit.has(rl.id)) this.lamps.push({ ...rl, power: 1600 * k });
+    this.assignPool(true);
+    if (this.pt) this.buildPtLights();
     this.invalidate();
+  }
+
+  private levelVisible = (l: number) => this.mode !== 'inside' || !!this.photo || l <= this.level;
+
+  /** Hand the pooled lights to the lamps that matter most right now. */
+  private assignPool(force = false) {
+    const focus = this.walker ? this.walker.pos : this.controls.target;
+    if (!force && focus.distanceToSquared(this.poolFocus) < 2.25) return;
+    this.poolFocus.copy(focus);
+    const cand = this.lamps.filter((l) => l.power > 0 && this.levelVisible(l.level));
+    const sel = cand.find((l) => l.id === this.selItem && this.renderer.shadowMap.enabled);
+    const score = (l: Lamp) => l.power / (1 + l.pos.distanceToSquared(focus));
+    const pick = (kind: Lamp['kind'], n: number) => cand.filter((l) => l !== sel && l.kind === kind).sort((a, b) => score(b) - score(a)).slice(0, n);
+    const set = (light: THREE.PointLight | THREE.SpotLight, l?: Lamp) => {
+      if (!l) {
+        light.power = 0;
+        return;
+      }
+      light.position.copy(l.pos);
+      light.color.copy(l.color);
+      light.power = l.power;
+      light.distance = l.distance;
+      if ((light as THREE.SpotLight).isSpotLight) {
+        const s = light as THREE.SpotLight;
+        s.angle = l.angle;
+        s.target.position.copy(l.aim);
+        s.target.updateMatrixWorld();
+      }
+      light.updateMatrixWorld();
+    };
+    const pts = pick('point', POOL_POINT), sps = pick('spot', POOL_SPOT);
+    this.poolPoint.forEach((p, i) => set(p, pts[i]));
+    this.poolSpot.forEach((p, i) => set(p, sps[i]));
+    set(this.shadowPoint, sel?.kind === 'point' ? sel : undefined);
+    set(this.shadowSpot, sel?.kind === 'spot' ? sel : undefined);
+    const selKey = sel ? `${sel.id}|${sel.pos.toArray().join()}` : '';
+    if (selKey !== this.poolSel) {
+      this.poolSel = selKey;
+      this.markShadows();
+    }
   }
 
   /** Ceiling fixtures are modelled for a 2.7 m ceiling; lift/lower them to the room's height. */
@@ -404,6 +484,60 @@ export class Engine {
   }
 
   private nightness = 0;
+
+  /* ------------------------------------------------------- shadow cache */
+  private shadowDirty = true;
+  private stillSince = 0;
+  private refined = false;
+  /** renders nothing on screen; used to redraw shadow maps including the shadow-only layer */
+  private probeCam = new THREE.PerspectiveCamera(1, 1, 0.1, 0.2);
+  private probeRT = new THREE.WebGLRenderTarget(1, 1);
+
+  markShadows() {
+    this.shadowDirty = true;
+    this.invalidate();
+  }
+
+  /**
+   * Redraw the shadow maps. Walls, roof and slabs cast through invisible stand-ins on layer 1,
+   * so a lifted roof or cut-down wall still blocks the sun like the real building would.
+   */
+  private updateShadows() {
+    const r = this.renderer;
+    this.probeCam.layers.enableAll();
+    this.probeCam.position.set(0, -5000, 0);
+    this.probeCam.lookAt(0, -6000, 0);
+    this.probeCam.updateMatrixWorld();
+    const prev = r.getRenderTarget();
+    r.shadowMap.needsUpdate = true;
+    r.setRenderTarget(this.probeRT);
+    r.render(this.scene, this.probeCam);
+    r.setRenderTarget(prev);
+    this.shadowDirty = false;
+  }
+
+  /** The path tracer sees every lamp as a real light, not just the pooled ones. */
+  private ptLights = new THREE.Group();
+  private buildPtLights() {
+    this.ptLights.children.forEach((c) => (c as THREE.Light).dispose?.());
+    this.ptLights.clear();
+    for (const l of this.lamps) {
+      if (!this.levelVisible(l.level) || l.power <= 0) continue;
+      let light: THREE.PointLight | THREE.SpotLight;
+      if (l.kind === 'spot') {
+        const s = new THREE.SpotLight(l.color, 1, l.distance, l.angle, 0.55, 2);
+        s.target.position.copy(l.aim);
+        this.ptLights.add(s.target);
+        light = s;
+      } else light = new THREE.PointLight(l.color, 1, l.distance, 2);
+      light.position.copy(l.pos);
+      light.power = l.power;
+      this.ptLights.add(light);
+    }
+    if (!this.ptLights.parent) this.scene.add(this.ptLights);
+    this.ptLights.updateMatrixWorld(true);
+    this.pt?.updateLights();
+  }
 
   /* ------------------------------------------------- path-traced render */
   private pt: WebGLPathTracer | null = null;
@@ -443,6 +577,9 @@ export class Engine {
     this.rooms.forEach((v) => (v.label.visible = false));
     if (this.helper) this.helper.visible = false;
     if (this.roomHelper) this.roomHelper.visible = false;
+    // shadow-only stand-ins would show up as real geometry to the path tracer
+    if (this.structure) this.structure.shadows.visible = false;
+    this.roomShadows.visible = false;
 
     // box/cylinder/extrude geometries carry material groups; with a single material the
     // rasteriser ignores them but the path tracer would index other materials — drop them
@@ -526,6 +663,11 @@ export class Engine {
     this.ptSaved = null;
     if (this.helper) this.helper.visible = true;
     if (this.roomHelper) this.roomHelper.visible = true;
+    if (this.structure) this.structure.shadows.visible = true;
+    this.roomShadows.visible = true;
+    this.ptLights.children.forEach((c) => (c as THREE.Light).dispose?.());
+    this.ptLights.clear();
+    this.ptLights.removeFromParent();
     this.setTime(this.lastHour);
     if (notify) this.onRender?.(-1, this.ptTarget);
     this.invalidate();
@@ -547,22 +689,17 @@ export class Engine {
   }
 
   private roomLightKey = '';
-  /** A plain ceiling light for rooms that have no lamp of their own (rebuilt only when that set changes). */
+  /** A plain ceiling light for rooms that have no lamp of their own. */
   private buildRoomLights() {
     const lamps = this.house.items.filter((i) => catalogById.get(i.t)?.light);
     const dark = this.house.rooms.filter((r) => !r.outdoor && !lamps.some((i) => lvl(i) === lvl(r) && inRoom(r, i.x, i.z)));
     const key = dark.map((r) => [r.id, r.x, r.z, r.w, r.d, r.h, lvl(r)].join()).join('|');
     if (key === this.roomLightKey) return;
     this.roomLightKey = key;
-    this.roomLights.children.forEach((c) => (c as THREE.PointLight).dispose());
-    this.roomLights.clear();
-    for (const r of dark) {
-      const l = new THREE.PointLight(0xffd6a0, 1, Math.max(r.w, r.d) * 1.6 + 2, 2);
-      l.userData.room = r.id;
-      l.position.set(r.x, levelY(lvl(r)) + r.h - 0.3, r.z);
-      l.userData.level = lvl(r);
-      this.roomLights.add(l);
-    }
+    this.roomLamps = dark.map((r): Lamp => {
+      const pos = new THREE.Vector3(r.x, levelY(lvl(r)) + r.h - 0.3, r.z);
+      return { id: r.id, kind: 'point', pos, aim: pos.clone().setY(levelY(lvl(r))), angle: 0, level: lvl(r), power: 0, color: new THREE.Color(0xffd6a0), distance: Math.max(r.w, r.d) * 0.8 + 1.5 };
+    });
   }
 
   /* ------------------------------------------------------------------ sync */
@@ -596,7 +733,6 @@ export class Engine {
         continue;
       }
       if (old) {
-        this.dropLight(old);
         this.itemsGroup.remove(old.group);
         disposeModel(old.group);
       }
@@ -612,7 +748,6 @@ export class Engine {
     }
     this.items.forEach((v, id) => {
       if (!seenI.has(id)) {
-        this.dropLight(v);
         this.itemsGroup.remove(v.group);
         disposeModel(v.group);
         this.items.delete(id);
@@ -637,6 +772,7 @@ export class Engine {
       if (this.roofLift > 0) this.structure.roof.visible = false;
     } else this.walker?.setWorld(h, this.structure!.segs);
     this.mapWallItems();
+    this.applyDaylight();
     this.buildRoomLights();
     this.placeCeilingItems();
     this.items.forEach((v) => this.syncLight(v));
@@ -645,6 +781,45 @@ export class Engine {
     this.fitShadow();
     this.refreshSelection();
     this.invalidate();
+  }
+
+  /**
+   * Daylight factor per room: sky light only gets in through glass, so a room's share of the
+   * ambient (environment) light follows its window area against its floor area. Deep or
+   * windowless rooms come out dimmer than the garden, as they do in reality.
+   */
+  private applyDaylight() {
+    const st = this.structure;
+    if (!st) return;
+    const glass = new Map<string, number>();
+    for (const w of st.walls) {
+      for (const g of w.seg.gaps) {
+        // windows and glazed doors; doorways between rooms are ignored
+        if (g.door && !/slidingdoor/.test(this.items.get(g.id)?.item.t ?? '')) continue;
+        const a = (g.b - g.a) * (g.y1 - g.y0);
+        for (const id of [w.seg.plus, w.seg.minus]) if (id) glass.set(id, (glass.get(id) ?? 0) + a);
+      }
+    }
+    const df = new Map<string, number>();
+    for (const r of this.house.rooms) df.set(r.id, r.outdoor ? 1 : THREE.MathUtils.clamp(0.2 + (2 * (glass.get(r.id) ?? 0)) / (r.w * r.d), 0.2, 1));
+    const scale = (m: THREE.Material | THREE.Material[], f: number) => {
+      for (const x of Array.isArray(m) ? m : [m]) {
+        const s = x as THREE.MeshStandardMaterial;
+        if (s.envMapIntensity === undefined) continue;
+        s.userData.envBase ??= s.envMapIntensity;
+        s.envMapIntensity = s.userData.envBase * f;
+      }
+    };
+    this.rooms.forEach((v) => scale(v.floorMat, df.get(v.room.id) ?? 1));
+    st.roomMats.forEach((m, id) => scale(m, df.get(id) ?? 1));
+    this.items.forEach((v) => {
+      const room = this.house.rooms.find((o) => lvl(o) === lvl(v.item) && inRoom(o, v.item.x, v.item.z));
+      const f = room ? df.get(room.id) ?? 1 : 1;
+      v.group.traverse((o) => {
+        const m = (o as THREE.Mesh).material;
+        if (m) scale(m, f);
+      });
+    });
   }
 
   /** Which wall each wall-mounted item hangs on (to hide it with a cut-down wall). */
@@ -701,7 +876,7 @@ export class Engine {
     const accent = new THREE.Color(getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#8c6e52');
     const iv = this.selItem ? this.items.get(this.selItem) : null;
     // the selected lamp casts real-time shadows so you can see where its light falls
-    this.items.forEach((v) => v.light && (v.light.castShadow = v === iv && this.renderer.shadowMap.enabled));
+    this.assignPool(true);
     if (iv) {
       this.helper = new THREE.BoxHelper(iv.group, accent);
       this.scene.add(this.helper);
@@ -744,6 +919,7 @@ export class Engine {
     const fg = new THREE.ShapeGeometry(shape(holes.floor));
     fg.rotateX(-Math.PI / 2);
     // ShapeGeometry UVs are the shape's x/y in metres; flip v to match world z
+    let proxy: THREE.Object3D | undefined;
     const floor = new THREE.Mesh(fg, floorMat);
     floor.position.y = room.outdoor && L === 0 ? 0.001 : 0.004;
     floor.receiveShadow = true;
@@ -759,8 +935,13 @@ export class Engine {
       const base = new THREE.Mesh(bg, new THREE.MeshStandardMaterial({ color: L > 0 ? '#d6d1c8' : '#4f4842', roughness: 0.9 }));
       base.position.y = -t + 0.001;
       base.receiveShadow = true;
-      base.castShadow = L > 0;
       g.add(base);
+      if (L > 0) {
+        base.castShadow = true;
+        proxy = shadowProxy(base);
+        proxy.position.add(g.position);
+        this.roomShadows.add(proxy);
+      }
     }
 
     let ceiling: THREE.Mesh | null = null;
@@ -778,10 +959,11 @@ export class Engine {
     label.position.set(0, 0.3, 0);
     g.add(label);
     this.roomsGroup.add(g);
-    return { key, room, group: g, floor, floorMat, ceiling, label };
+    return { key, room, group: g, floor, floorMat, ceiling, label, proxy };
   }
 
   private removeRoomView(v: RoomView) {
+    if (v.proxy) this.roomShadows.remove(v.proxy);
     this.roomsGroup.remove(v.group);
     disposeModel(v.group);
   }
@@ -810,6 +992,7 @@ export class Engine {
   }
 
   private fitShadow() {
+    this.markShadows();
     const box = this.houseBox(null, true);
     const c = box.getCenter(new THREE.Vector3());
     const s = box.getSize(new THREE.Vector3());
@@ -1178,7 +1361,11 @@ export class Engine {
         } else d.obj.position.set(x, y, z);
       } else d.obj.position.set(Math.round(x * 100) / 100, y, Math.round(z * 100) / 100);
       const dv = this.items.get(d.id);
-      if (dv) this.syncLight(dv);
+      if (dv) {
+        this.syncLight(dv);
+        if (dv.spec) this.assignPool(true);
+      }
+      this.markShadows();
     }
     this.helper?.update();
     this.invalidate();
@@ -1287,6 +1474,30 @@ export class Engine {
   }
 
   /* -------------------------------------------------------------- render */
+  /* ------------------------------------------------------- auto quality */
+  private frameAvg = 16;
+  private busyFrames = 0;
+  private pixelCap = 1.5;
+  /**
+   * Watch how long frames take while the view is moving; if this machine can't keep ~30 fps,
+   * step the resolution down (once per step, so the picture never flickers between sizes).
+   */
+  private adapt(gap: number) {
+    if (!this.dirty || this.pt || gap > 200) {
+      this.busyFrames = 0;
+      return;
+    }
+    this.frameAvg += (gap - this.frameAvg) * 0.1;
+    if (++this.busyFrames < 45 || this.frameAvg < 36) return;
+    const pr = this.renderer.getPixelRatio();
+    if (pr <= 0.76) return;
+    this.pixelCap = Math.max(0.75, pr - 0.25);
+    this.renderer.setPixelRatio(this.pixelCap);
+    this.busyFrames = 0;
+    this.frameAvg = 16;
+    this.resize();
+  }
+
   resize() {
     const r = this.host.getBoundingClientRect();
     if (!r.width || !r.height) return;
@@ -1313,7 +1524,9 @@ export class Engine {
   private loop = () => {
     this.raf = requestAnimationFrame(this.loop);
     const now = performance.now();
-    const dt = Math.min(0.05, (now - this.last) / 1000);
+    const gap = now - this.last;
+    const dt = Math.min(0.05, gap / 1000);
+    this.adapt(gap);
     this.last = now;
     if (this.tween) {
       let t = Math.min(1, (now - this.tween.s) / this.tween.d);
@@ -1344,12 +1557,18 @@ export class Engine {
       if (++this.ptFrame % 8 === 0) this.onRender?.((this.pt as unknown as { isCompiling: boolean }).isCompiling ? -3 : Math.floor(this.pt.samples), this.ptTarget); // isCompiling is missing from the bundled types
       return;
     }
-    if (!this.dirty) return;
-    this.dirty = false;
-    this.render();
+    if (this.dirty) {
+      this.dirty = false;
+      this.stillSince = now;
+      this.refined = false;
+      this.render(false);
+    } else if (!this.refined && now - this.stillSince > 180) {
+      this.refined = true;
+      this.render(true);
+    }
   };
 
-  private render() {
+  private render(full = true) {
     const cam = this.camera.position;
     const looking = new THREE.Spherical().setFromVector3(cam.clone().sub(this.controls.target));
     const inside = this.mode === 'inside' && !this.photo;
@@ -1421,10 +1640,7 @@ export class Engine {
       // ceiling fixtures would float in mid-air when looking down into a roofless room
       if (v.group.visible && inside && catalogById.get(v.item.t)?.mount === 'ceiling') v.group.visible = cam.y < v.group.position.y + 2.7;
     });
-    // lamps on hidden storeys are dimmed to zero rather than hidden
-    for (const l of [...this.roomLights.children, ...this.lampGroup.children] as THREE.PointLight[]) {
-      if (l.isLight) l.power = showLevel(l.userData.level) ? (l.userData.power ?? 0) : 0;
-    }
+    this.assignPool();
 
     this.helper?.update();
     const r = this.renderer;
@@ -1432,7 +1648,9 @@ export class Engine {
     r.setViewport(0, 0, size.x, size.y);
     r.setScissorTest(false);
     r.clear();
-    if (this.fx && !this.photo) {
+    if (this.shadowDirty && r.shadowMap.enabled) this.updateShadows();
+    // while moving draw straight to screen; ambient occlusion + bloom go on the settled frame
+    if (this.fx && !this.photo && full) {
       this.bloom.strength = 0.15 + 0.25 * this.nightness;
       this.composer.render();
     } else r.render(this.scene, this.camera);
