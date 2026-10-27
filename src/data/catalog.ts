@@ -3,7 +3,7 @@ import { MAT, add, cy, lathe, noShadow, rb, shade, sphere, tube } from '../engin
 import { ctx2d, mkCanvas, rng } from '../engine/canvas';
 import { sharedTex } from '../engine/textures';
 
-export type CatId = 'bath' | 'kitchen' | 'living' | 'bedroom' | 'dining' | 'office' | 'doors' | 'decor' | 'outdoor';
+export type CatId = 'bath' | 'kitchen' | 'living' | 'bedroom' | 'dining' | 'office' | 'doors' | 'lights' | 'decor' | 'outdoor';
 
 export const CATEGORIES: { id: CatId; name: string }[] = [
   { id: 'living', name: 'ห้องนั่งเล่น' },
@@ -13,6 +13,7 @@ export const CATEGORIES: { id: CatId; name: string }[] = [
   { id: 'bath', name: 'ห้องน้ำ' },
   { id: 'office', name: 'ห้องทำงาน' },
   { id: 'doors', name: 'ประตู / หน้าต่าง' },
+  { id: 'lights', name: 'โคมไฟ / แสงสว่าง' },
   { id: 'decor', name: 'ตกแต่ง / ต้นไม้' },
   { id: 'outdoor', name: 'นอกบ้าน / สวน' },
 ];
@@ -25,8 +26,10 @@ export interface CatalogItem {
   /** typical Thai retail price (THB) */
   price: number;
   colors: string[];
-  /** wall items snap onto the nearest wall; local z = 0 is the wall face */
-  mount?: 'wall';
+  /** wall items snap onto the nearest wall (local z = 0 is the wall face); ceiling items follow the room height */
+  mount?: 'wall' | 'ceiling';
+  /** light source: brightness in lumens, position in the model, spot half-angle (rad) */
+  light?: { kind: 'point' | 'spot'; lm: number; at: [number, number, number]; angle?: number; aim?: [number, number, number] };
   /** wall items that cut a hole: width, sill and head height (m); doors can be walked through */
   opening?: { w: number; y0: number; y1: number; door?: boolean };
   /** straight stair: width × run (m); climbs one storey towards local -z */
@@ -147,12 +150,11 @@ export const CATALOG: CatalogItem[] = [
       const m = new THREE.MeshStandardMaterial({ color: c, roughness: 1, map: s.rug, normalMap: s.fabricN, normalScale: new THREE.Vector2(1.5, 1.5) });
       noShadow(rb(g, 2, 0.014, 1.4, 0.006, m, 0, 0.007, 0));
     } },
-  { id: 'floorlamp', cats: ['living', 'decor'], name: 'โคมไฟตั้งพื้น', size: 'ø40 ซม.', price: 2490, colors: ['#f3ead8', '#2b2b2b', '#c58f4e'],
+  { id: 'floorlamp', cats: ['lights', 'living', 'decor'], name: 'โคมไฟตั้งพื้น', size: 'ø40 ซม.', price: 2490, colors: ['#f3ead8', '#2b2b2b', '#c58f4e'], light: { kind: 'point', lm: 800, at: [0, 1.5, 0] },
     build(c, g) {
       const mt = MAT.brushed();
       lathe(g, [[0, 0], [0.16, 0], [0.16, 0.015], [0.03, 0.03], [0, 0.03]], mt, 0, 0, 0, 48); cy(g, 0.01, 0.01, 1.45, mt, 0, 0.75, 0, 12);
       noShadow(lathe(g, [[0.21, 0], [0.13, 0.3]], MAT.glow(c, 0.45), 0, 1.4, 0, 64));
-      const l = new THREE.PointLight(0xffd9a0, 1.2, 5, 2); l.position.set(0, 1.5, 0); g.add(l);
     } },
   /* ---------------- bedroom ---------------- */
   { id: 'bed', cats: ['bedroom'], name: 'เตียง 5 ฟุต', size: '160×200 ซม.', price: 12900, colors: ['#9aa7b0', '#c9a27a', '#8e9e86', '#e6dfd3'],
@@ -175,7 +177,7 @@ export const CATALOG: CatalogItem[] = [
       rb(g, 1.1, 0.28, 2.05, 0.02, fr, 0, 0.19, 0); rb(g, 1.05, 0.22, 2, 0.06, wh, 0, 0.44, 0); rb(g, 1.09, 0.07, 1.4, 0.035, MAT.fabric(c), 0, 0.565, 0.3);
       rb(g, 1.1, 0.8, 0.05, 0.01, fr, 0, 0.55, -1.02); rb(g, 0.6, 0.14, 0.38, 0.07, wh, 0, 0.62, -0.74).rotation.x = -0.25;
     } },
-  { id: 'nightstand', cats: ['bedroom'], name: 'ตู้ข้างเตียง + โคมไฟ', size: '45×40 ซม.', price: 3290, colors: WOOD,
+  { id: 'nightstand', cats: ['bedroom'], name: 'ตู้ข้างเตียง + โคมไฟ', size: '45×40 ซม.', price: 3290, colors: WOOD, light: { kind: 'point', lm: 250, at: [0.08, 0.84, -0.05] },
     build(c, g) {
       rb(g, 0.45, 0.48, 0.4, 0.01, MAT.wood(c), 0, 0.3, 0); rb(g, 0.43, 0.003, 0.01, 0.001, MAT.matte('#1d1b19'), 0, 0.38, 0.201);
       rb(g, 0.12, 0.012, 0.015, 0.005, MAT.brushed('#c9a45c'), 0, 0.45, 0.21);
@@ -271,12 +273,11 @@ export const CATALOG: CatalogItem[] = [
       for (const x of [-0.72, 0.72]) for (const z of [-0.17, 0.17]) cy(g, 0.015, 0.01, 0.2, MAT.brushed('#c9a45c'), x, 0.1, z, 12);
       lathe(g, [[0, 0], [0.07, 0], [0.09, 0.08], [0.05, 0.22], [0.04, 0.3], [0, 0.3]], MAT.ceramic('#c9bba6'), 0.5, 0.8, 0, 40);
     } },
-  { id: 'pendant', cats: ['dining', 'kitchen', 'decor'], name: 'โคมไฟห้อย', size: 'ø40 ซม.', price: 2290, colors: ['#2b2b2b', '#c9a45c', '#f1eee8'],
+  { id: 'pendant', cats: ['lights', 'dining', 'kitchen', 'decor'], name: 'โคมไฟห้อย', size: 'ø40 ซม.', price: 2290, colors: ['#2b2b2b', '#c9a45c', '#f1eee8'], light: { kind: 'point', lm: 900, at: [0, 1.6, 0] },
     build(c, g) {
       cy(g, 0.004, 0.004, 0.6, MAT.matte('#111'), 0, 2.15, 0, 6);
       lathe(g, [[0.02, 0.22], [0.08, 0.2], [0.17, 0.08], [0.2, 0], [0.195, 0], [0.165, 0.075], [0.075, 0.19], [0.015, 0.21]], new THREE.MeshStandardMaterial({ color: c, metalness: 0.6, roughness: 0.35, side: THREE.DoubleSide }), 0, 1.63, 0, 48);
       noShadow(sphere(g, 0.05, MAT.glow('#fff1d6', 1.4), 0, 1.66, 0, 2));
-      const l = new THREE.PointLight(0xffe0b0, 1.5, 4, 2); l.position.set(0, 1.6, 0); g.add(l);
     } },
   /* ---------------- bathroom ---------------- */
   { id: 'toilet', cats: ['bath'], name: 'ชักโครก', size: '38×70 ซม.', price: 4500, colors: CERAMIC,
@@ -415,6 +416,37 @@ export const CATALOG: CatalogItem[] = [
       glass.rotation.x = slope;
       const rail = cy(g, 0.022, 0.022, len, MAT.steel(), 0.49, 1.5 + 0.95, 0, 16);
       rail.rotation.x = Math.PI / 2 + slope;
+    } },
+  /* ---------------- lighting ---------------- */
+  { id: 'downlight', cats: ['lights'], name: 'ดาวน์ไลท์ฝังฝ้า', size: 'ø12 ซม. · 9W', price: 390, colors: ['#f4f2ee', '#2b2b2b', '#c9a45c'], mount: 'ceiling', light: { kind: 'spot', lm: 750, at: [0, 2.66, 0], angle: 0.6 },
+    build(c, g) {
+      cy(g, 0.065, 0.065, 0.012, MAT.matte(c), 0, 2.694, 0, 32);
+      noShadow(cy(g, 0.045, 0.045, 0.004, MAT.glow('#fff4e0', 2.2), 0, 2.686, 0, 32));
+    } },
+  { id: 'ceilinglamp', cats: ['lights', 'bedroom', 'living'], name: 'โคมไฟเพดาน LED', size: 'ø50 ซม. · 24W', price: 1590, colors: ['#f4f2ee', '#c9a27a', '#2b2b2b'], mount: 'ceiling', light: { kind: 'point', lm: 2000, at: [0, 2.52, 0] },
+    build(c, g) {
+      cy(g, 0.25, 0.25, 0.03, MAT.wood(c), 0, 2.685, 0, 48);
+      noShadow(lathe(g, [[0, 0], [0.23, 0], [0.23, 0.03], [0.2, 0.07], [0, 0.08]], MAT.glow('#fff3df', 1.1), 0, 2.59, 0, 48)).rotation.x = Math.PI;
+    } },
+  { id: 'walllight', cats: ['lights', 'outdoor', 'living'], name: 'โคมไฟผนัง Up-Down', size: '10×20 ซม. · 6W', price: 890, colors: ['#2b2b2b', '#c9a45c', '#f4f2ee'], mount: 'wall', light: { kind: 'point', lm: 450, at: [0, 1.85, 0.16] },
+    build(c, g) {
+      rb(g, 0.1, 0.2, 0.1, 0.01, MAT.brushed(c), 0, 1.85, 0.06);
+      for (const y of [1.745, 1.955]) noShadow(cy(g, 0.035, 0.035, 0.006, MAT.glow('#fff0d6', 2.5), 0, y, 0.06, 24));
+    } },
+  { id: 'trackspot', cats: ['lights', 'living', 'decor'], name: 'ไฟส่องเฉพาะจุด (Track)', size: '100 ซม. · 3 หัว', price: 2490, colors: ['#2b2b2b', '#f4f2ee'], mount: 'ceiling', light: { kind: 'spot', lm: 1200, at: [0, 2.5, 0.2], angle: 0.4, aim: [0, 0.6, 1.4] },
+    build(c, g) {
+      rb(g, 1, 0.03, 0.04, 0.01, MAT.brushed(c), 0, 2.685, 0);
+      for (const x of [-0.35, 0, 0.35]) {
+        const h = cy(g, 0.035, 0.03, 0.12, MAT.brushed(c), x, 2.58, 0.05, 20);
+        h.rotation.x = 0.5;
+        noShadow(cy(g, 0.025, 0.025, 0.004, MAT.glow('#fff4e0', 2), x, 2.52, 0.08, 20)).rotation.x = 0.5;
+      }
+    } },
+  { id: 'gardenlight', cats: ['lights', 'outdoor'], name: 'ไฟสนามทรงเสา', size: 'สูง 60 ซม. · 5W', price: 1190, colors: ['#2b2b2b', '#7d8186'], light: { kind: 'point', lm: 300, at: [0, 0.55, 0] },
+    build(c, g) {
+      cy(g, 0.05, 0.06, 0.5, MAT.brushed(c), 0, 0.25, 0, 20);
+      noShadow(cy(g, 0.045, 0.045, 0.08, MAT.glow('#fff0d6', 1.6), 0, 0.54, 0, 20));
+      cy(g, 0.07, 0.07, 0.03, MAT.brushed(c), 0, 0.6, 0, 20);
     } },
   { id: 'curtain', cats: ['doors', 'decor'], name: 'ผ้าม่าน', size: '170×240 ซม.', price: 3490, colors: ['#e6dfd3', '#c9bba6', '#8d8479', '#5f6b6e'], mount: 'wall',
     build(c, g) {

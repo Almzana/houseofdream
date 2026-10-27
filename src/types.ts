@@ -39,6 +39,10 @@ export interface Item {
   z: number;
   r: number; // rotation around y (radians)
   c: string; // colour variant
+  /** light fixtures: brightness (lumens), colour temperature (K), switched off */
+  lm?: number;
+  k?: number;
+  off?: boolean;
   /** storey the item stands on (default 0) */
   l?: number;
 }

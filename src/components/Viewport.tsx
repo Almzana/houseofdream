@@ -38,6 +38,8 @@ function Hold({ label, onHold, children }: { label: string; onHold: (on: boolean
 export function Viewport() {
   const host = useRef<HTMLDivElement>(null);
   const [az, setAz] = useState(0);
+  /** realistic render progress: null = off, s = −2 while the scene is being prepared */
+  const [rt, setRt] = useState<{ s: number; t: number } | null>(null);
   const selRoom = useStore((s) => s.selRoom);
   const rooms = useStore((s) => s.house.rooms);
   const planMode = useStore((s) => s.planMode);
@@ -61,6 +63,7 @@ export function Viewport() {
       view: (theta) => setAz(theta),
     });
     setEngine(e);
+    e.onRender = (s, t) => setRt(s === -1 ? null : { s, t });
     if (import.meta.env.DEV) (window as unknown as { __engine: Engine }).__engine = e;
     e.setQuality(st.quality);
     e.setWallMode(st.wallMode);
@@ -114,6 +117,20 @@ export function Viewport() {
           ? 'ลากเพื่อหมุนรอบบ้าน · กด “ภายใน” เพื่อยกหลังคาดูข้างใน'
           : 'ลากพื้นที่ว่างเพื่อหมุน · คลิกของเพื่อเลือก แล้วลากเพื่อย้าย';
   const pad = (p: Partial<{ f: number; s: number; t: number }>) => getEngine()?.walkPad(p);
+  const startRender = () => {
+    useStore.getState().selectItem(null);
+    setRt({ s: -2, t: 400 });
+    // let the "preparing" message paint before the scene is compiled
+    setTimeout(() => requestAnimationFrame(() => getEngine()?.startRealistic()), 30);
+  };
+  const savePng = () => {
+    const url = getEngine()?.snapshot();
+    if (!url) return;
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `baan3d-${new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '')}.png`;
+    a.click();
+  };
 
   return (
     <div className="stage" ref={host}>
@@ -156,12 +173,30 @@ export function Viewport() {
         </div>
       )}
 
-      {!photo.active && !walking && (
+      {rt && (
+        <div className="float renderbar" role="status">
+          <div className="prog">
+            {rt.s === -3
+              ? <span>กำลังเตรียมตัวคำนวณแสงของการ์ดจอ · ครั้งแรกอาจใช้ราว 1 นาที</span>
+              : rt.s < 0
+              ? <span>กำลังเตรียมฉากสำหรับคำนวณแสง…</span>
+              : rt.s >= rt.t
+                ? <span><b>เสร็จแล้ว</b> · แสงเด้งสะท้อน {rt.t} รอบต่อพิกเซล</span>
+                : <span>คำนวณแสงสะท้อน <b>{rt.s}/{rt.t}</b> · ยิ่งนานยิ่งเนียน · ลากเพื่อหมุนได้</span>}
+            <div className="bar"><i style={{ width: `${rt.s < 0 ? 0 : (100 * rt.s) / rt.t}%` }} /></div>
+          </div>
+          <button className="btn" onClick={savePng} disabled={rt.s < 0}>บันทึกภาพ PNG</button>
+          <button className="btn primary" onClick={() => getEngine()?.stopRealistic(true)}>ปิด</button>
+        </div>
+      )}
+
+      {!photo.active && !walking && !rt && (
         <div className="float viewbtns" aria-label="มุมกล้อง">
           <button onClick={() => getEngine()?.view('iso')}>มุม 3D</button>
           <button onClick={() => getEngine()?.view('top')}>มองจากบน</button>
           <button onClick={() => getEngine()?.view('front')}>ด้านหน้าบ้าน</button>
           <button onClick={() => getEngine()?.view('iso', selRoom)} disabled={!selRoom}>ซูมห้องนี้</button>
+          <button className="real" onClick={startRender} title="คำนวณแสงที่เด้งสะท้อนจริงจากทุกพื้นผิว">✦ ภาพสมจริง</button>
           {photo.img && photo.pts && <button onClick={() => showPhotoView()}>มุมรูปถ่าย</button>}
         </div>
       )}
@@ -196,7 +231,7 @@ export function Viewport() {
       ) : (
         !photo.active && <NavPad azimuth={az} />
       )}
-      {!walking && <SelectionBar />}
+      {!walking && !rt && <SelectionBar />}
       {photo.calibOpen && <PhotoCalib />}
 
       {!seenTips && (

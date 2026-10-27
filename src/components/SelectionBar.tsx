@@ -3,6 +3,7 @@ import { useStore } from '../store';
 import { catalogById } from '../data/catalog';
 import { baht } from '../lib/boq';
 import { getThumb, onThumbs, requestThumbs } from '../engine/thumbs';
+import { LightControls } from './LightControls';
 
 export function SelectionBar() {
   const selItem = useStore((s) => s.selItem);
@@ -24,13 +25,14 @@ export function SelectionBar() {
       {thumb && <img src={thumb} alt="" />}
       <div>
         <div className="name">{def.name}</div>
-        <div className="meta">{def.size}{def.price ? ` · ≈ ${baht(def.price)}` : ''}{def.mount === 'wall' ? ' · ติดผนัง' : ''}</div>
+        <div className="meta">{def.size}{def.price ? ` · ≈ ${baht(def.price)}` : ''}{def.mount === 'wall' ? ' · ติดผนัง' : def.mount === 'ceiling' ? ' · ติดฝ้า' : ''}</div>
       </div>
       <div className="colors" aria-label="สี">
         {def.colors.map((c) => (
           <button key={c} className="dot" style={{ background: c }} aria-pressed={c === colour} title="เปลี่ยนสี" onClick={() => s.updateItem(item.id, { c })} />
         ))}
       </div>
+      {def.light && <LightControls item={item} />}
       <span className="grow" />
       <button className="btn small" onClick={() => s.updateItem(item.id, { r: Math.round((item.r + Math.PI / 4) / (Math.PI / 4)) * (Math.PI / 4) })} title="หมุน (R)">หมุน 45°</button>
       <button className="btn small" onClick={() => s.duplicateItem(item.id)} title="ทำสำเนา (D)">สำเนา</button>

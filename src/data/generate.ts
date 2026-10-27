@@ -110,6 +110,18 @@ function layout(type: RoomType, lw: number, ld: number, big: boolean): Spec[] {
       if (ld >= 1.4 && lw >= 2.4) out.push(['outdoorset', 0, 0]);
       break;
   }
+  // ceiling lighting: a grid of downlights (≈ one per 3 m²) or a single ceiling lamp
+  const grid = (dx: number, dz: number) => {
+    const nx = Math.max(1, Math.round(lw / dx)), nz = Math.max(1, Math.round(ld / dz));
+    for (let i = 0; i < nx; i++) for (let j = 0; j < nz; j++) out.push(['downlight', Lw + ((i + 0.5) * lw) / nx, B + ((j + 0.5) * ld) / nz]);
+  };
+  switch (type) {
+    case 'bedroom': case 'office': out.push(['ceilinglamp', 0, 0]); break;
+    case 'living': case 'kitchen': grid(2.6, 2.6); break;
+    case 'bathroom': case 'laundry': case 'hall': grid(3.2, 3.2); break;
+    case 'garden': out.push(['gardenlight', Lw + 0.4, F - 0.4], ['gardenlight', Rw - 0.4, F - 0.4]); break;
+    case 'balcony': out.push(['walllight', 0, B, 0]); break;
+  }
   return out;
 }
 

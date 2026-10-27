@@ -312,3 +312,24 @@ details.room .body { padding: 12px; display: flex; flex-direction: column; gap: 
   .viewbtns button { padding: 6px 8px; min-width: 84px; }
   .walkpad { bottom: 14px; }
 }
+
+/* lamp controls in the selection bar */
+.lightctl { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; padding: 6px 10px; border: 1px solid var(--line); background: var(--chip); flex-basis: 100%; }
+.lightctl label { display: flex; flex-direction: column; gap: 2px; font-size: 12px; color: var(--muted); min-width: 170px; flex: 1; }
+.lightctl label b { color: var(--ink); font-family: var(--f-display); font-weight: 500; font-variant-numeric: tabular-nums; }
+.lightctl input { width: 100%; accent-color: var(--accent); }
+.lightctl input.kelvin { accent-color: #e9a64f; background: linear-gradient(90deg, #ffb56b, #fff1df, #dfe9ff); height: 6px; border-radius: 3px; appearance: none; -webkit-appearance: none; }
+.lightctl input.kelvin::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 16px; border-radius: 50%; background: var(--panel); border: 2px solid var(--ink); }
+.lightctl input.kelvin::-moz-range-thumb { width: 14px; height: 14px; border-radius: 50%; background: var(--panel); border: 2px solid var(--ink); }
+.lightctl .switch { display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--line); background: var(--panel); padding: 7px 12px; font-size: 13px; }
+.lightctl .switch i { width: 14px; height: 14px; border-radius: 50%; box-shadow: 0 0 0 1px var(--line); }
+.lightctl .switch.on i { box-shadow: 0 0 10px 2px rgba(255, 210, 140, .8); }
+
+/* realistic render */
+.renderbar { left: 50%; transform: translateX(-50%); top: 14px; display: flex; align-items: center; gap: 12px; padding: 8px 10px 8px 14px; z-index: 4; max-width: calc(100% - 28px); flex-wrap: wrap; }
+.renderbar .prog { display: flex; flex-direction: column; gap: 4px; min-width: 200px; font-size: 12.5px; }
+.renderbar .prog b { font-family: var(--f-display); font-weight: 500; font-variant-numeric: tabular-nums; }
+.renderbar .bar { height: 4px; background: var(--line); }
+.renderbar .bar i { display: block; height: 100%; background: var(--accent); transition: width .3s; }
+.viewbtns .real { background: var(--ink); color: var(--bg); }
+.viewbtns .real:hover { background: var(--accent); color: var(--accent-ink); }
