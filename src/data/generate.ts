@@ -6,6 +6,8 @@
 import { DEFAULT_EXT, type Exterior, type House, type Item, type Room, type RoomType, type RoofStyle } from '../types';
 import { catalogById } from './catalog';
 import { makeRoom, uid } from './templates';
+import { openingsOf } from '../lib/shell';
+import { isExterior, wallSegments } from '../lib/walls';
 
 export interface GenOptions {
   floors: 1 | 2;
@@ -152,6 +154,40 @@ export function entranceSide(room: Room, items: Item[]): Side {
     for (const [sd, d] of cands) if (d < bd && d < 0.2) { bd = d; best = sd; }
   }
   return best;
+}
+
+/**
+ * Thai building rules want doors/windows to the outside of at least 10% of each habitable
+ * room's floor: add windows on free stretches of its outside walls until it complies.
+ */
+function ensureVentilation(rooms: Room[], items: Item[]) {
+  const lookup = (t: string) => catalogById.get(t);
+  for (const r of rooms) {
+    if (r.outdoor || !['living', 'bedroom', 'dining', 'office', 'kitchen', 'bathroom'].includes(r.type)) continue;
+    const L = r.level ?? 0;
+    for (let guard = 0; guard < 4; guard++) {
+      const segs = wallSegments(rooms, openingsOf({ rooms, items }, lookup), L).filter((s) => isExterior(s) && (s.plus === r.id || s.minus === r.id));
+      const open = segs.reduce((a, s) => a + s.gaps.reduce((b, g) => b + (g.b - g.a) * (g.y1 - g.y0), 0), 0);
+      if (open >= 0.1 * r.w * r.d) break;
+      // the longest free stretch on any outside wall of the room
+      let best: { s: (typeof segs)[number]; at: number; room: number } | null = null;
+      for (const s of segs) {
+        let x = s.s0;
+        for (const g of [...s.gaps, { a: s.s1, b: s.s1 }]) {
+          const free = g.a - x - 0.3;
+          if (free > 1.4 && (!best || free > best.room)) best = { s, at: (x + g.a) / 2, room: free };
+          x = Math.max(x, g.b);
+        }
+      }
+      if (!best) break;
+      const { s, at } = best;
+      const t = r.type === 'bathroom' ? 'window' : best.room > 2.6 ? 'bigwindow' : 'window';
+      const inward = s.plus === r.id ? 1 : -1; // room side
+      // wall items face into the room: r = 0 faces +z, π/2 faces +x
+      const rot = s.axis === 'x' ? (inward > 0 ? 0 : P) : inward > 0 ? P / 2 : -P / 2;
+      items.push({ id: uid('i'), t, x: s.axis === 'x' ? at : s.c, z: s.axis === 'x' ? s.c : at, r: rot, c: catalogById.get(t)?.colors[0] ?? '', l: L });
+    }
+  }
 }
 
 /* ------------------------------------------------------------------ layout */
@@ -348,6 +384,7 @@ export function generateHouse(o: GenOptions): House {
     }
   }
 
+  ensureVentilation(rooms, items);
   for (const r of rooms) items.push(...furnish(r, furnishOf.get(r.id) ?? 's'));
 
   // centre the plan on the origin

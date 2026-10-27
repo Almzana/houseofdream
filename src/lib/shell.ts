@@ -1,5 +1,5 @@
 /** Building-shell measurements shared by the 3D builder and the bill of quantities. */
-import { DEFAULT_EXT, LEVEL_H, type Exterior, type House, type Room } from '../types';
+import { DEFAULT_EXT, DEFAULT_SITE, LEVEL_H, type Exterior, type House, type Room } from '../types';
 import { isExterior, wallSegments, type WallOpening } from './walls';
 
 export const WALL_T = 0.2; // exterior wall thickness (built outwards from the room edge)
@@ -84,14 +84,16 @@ export function shellStats(house: House, lookup: Parameters<typeof openingsOf>[1
 }
 
 /** Plot boundary around everything that was drawn. */
+/** Plot boundary: the drawn rooms plus the clear margins set for the land (default 2 m all round). */
 export function lotOf(house: House) {
   const r = house.rooms;
+  const m = { ...DEFAULT_SITE, ...house.site };
   if (!r.length) return { x0: -6, x1: 6, z0: -6, z1: 6 };
   return {
-    x0: Math.min(...r.map((o) => o.x - o.w / 2)) - 2,
-    x1: Math.max(...r.map((o) => o.x + o.w / 2)) + 2,
-    z0: Math.min(...r.map((o) => o.z - o.d / 2)) - 2,
-    z1: Math.max(...r.map((o) => o.z + o.d / 2)) + 2,
+    x0: Math.min(...r.map((o) => o.x - o.w / 2)) - m.left,
+    x1: Math.max(...r.map((o) => o.x + o.w / 2)) + m.right,
+    z0: Math.min(...r.map((o) => o.z - o.d / 2)) - m.back,
+    z1: Math.max(...r.map((o) => o.z + o.d / 2)) + m.front,
   };
 }
 

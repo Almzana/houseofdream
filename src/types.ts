@@ -60,16 +60,38 @@ export interface Exterior {
   fence: boolean;
 }
 
+/** How the house is built: wall blocks, pipes, wiring, piles. */
+export interface BuildSpec {
+  block: 'red' | 'aac';
+  pipe: 'ppr' | 'pvc';
+  wire: 'thw' | 'vaf';
+  pile: 'i18' | 'spun';
+}
+
 export interface House {
   rooms: Room[];
   items: Item[];
   ext?: Exterior;
+  build?: BuildSpec;
+  site?: Site;
 }
+
+/** The land: clear distance from the drawn plan to each boundary (m), and the street in front. */
+export interface Site {
+  left: number;
+  right: number;
+  back: number;
+  front: number;
+  /** width of the public road along the front boundary */
+  road: number;
+}
+// 2.5 m keeps the wall face (20 cm outside the room edge) beyond the 2 m opening setback
+export const DEFAULT_SITE: Site = { left: 2.5, right: 2.5, back: 2.5, front: 2, road: 6 };
 
 export type WallMode = 'auto' | 'full' | 'low';
 export type Quality = 'high' | 'fast';
-/** outside = whole building with roof · inside = roof off, walls cut · walk = first person */
-export type ViewMode = 'outside' | 'inside' | 'walk';
+/** outside = whole building · inside = roof off, walls cut · walk = first person · build = construction X-ray */
+export type ViewMode = 'outside' | 'inside' | 'walk' | 'build';
 
 /** storey height, floor to floor (metres) */
 export const LEVEL_H = 3.0;

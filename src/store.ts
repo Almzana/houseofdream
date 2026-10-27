@@ -1,11 +1,12 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
-import { DEFAULT_EXT, type Exterior, type House, type Item, type Quality, type Room, type RoomType, type ViewMode, type WallMode } from './types';
+import { DEFAULT_EXT, DEFAULT_SITE, type Site, type BuildSpec, type Exterior, type House, type Item, type Quality, type Room, type RoomType, type ViewMode, type WallMode } from './types';
 import { ROOM_TYPES, TEMPLATES, makeRoom, uid } from './data/templates';
 import { catalogById } from './data/catalog';
+import { DEFAULT_SPEC } from './lib/construction';
 import { entranceSide, furnish, generateHouse, type GenOptions } from './data/generate';
 
-export type Tab = 'house' | 'materials' | 'catalog' | 'budget';
+export type Tab = 'house' | 'materials' | 'catalog' | 'budget' | 'code';
 const HISTORY = 60;
 
 interface State {
@@ -31,6 +32,8 @@ interface State {
   loadTemplate: (id: string) => void;
   generate: (o: GenOptions) => void;
   setExt: (p: Partial<Exterior>) => void;
+  setBuild: (p: Partial<BuildSpec>) => void;
+  setSite: (p: Partial<Site>) => void;
   addRoom: (type: RoomType) => void;
   updateRoom: (id: string, patch: Partial<Room>) => void;
   removeRoom: (id: string) => void;
@@ -91,6 +94,8 @@ export const useStore = create<State>()(
         set({ selItem: null, selRoom: null, level: 0, viewMode: 'outside', planMode: false });
       },
       setExt: (p) => get().commit((h) => ({ ...h, ext: { ...DEFAULT_EXT, ...h.ext, ...p } })),
+      setBuild: (p) => get().commit((h) => ({ ...h, build: { ...DEFAULT_SPEC, ...h.build, ...p } })),
+      setSite: (p) => get().commit((h) => ({ ...h, site: { ...DEFAULT_SITE, ...h.site, ...p } })),
 
       addRoom: (type) => {
         const { house: h, level } = get();

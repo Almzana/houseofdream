@@ -12,12 +12,15 @@ import { catalogById, type CatalogItem } from '../data/catalog';
 import { floorById } from '../data/surfaces';
 import type { House, Item, Quality, Room, ViewMode, WallMode } from '../types';
 import { inRoom, levelY } from '../lib/shell';
+import { setbackLines } from '../lib/thaicode';
 import { kelvinRGB } from '../lib/kelvin';
 import { buildModel, disposeModel } from './models';
 import { setAnisotropy, surfaceSet } from './textures';
 import { ctx2d, mkCanvas } from './canvas';
 import { LOW, buildStructure, shadowProxy, type Structure, type WallView } from './structure';
 import { Walker } from './walk';
+import { BuildView, type BuildPick } from './buildview';
+import { construct, type Layer } from '../lib/construction';
 import type { Pose } from '../lib/pose';
 
 export interface EngineEvents {
@@ -26,6 +29,8 @@ export interface EngineEvents {
   itemMoved: (id: string, x: number, z: number, r: number) => void;
   roomMoved: (id: string, x: number, z: number) => void;
   view: (azimuth: number, polar: number) => void;
+  /** a construction part was clicked in build mode (null = empty space) */
+  inspect?: (p: BuildPick | null) => void;
 }
 
 interface RoomView {
@@ -60,8 +65,10 @@ interface Lamp {
   color: THREE.Color;
   distance: number;
 }
-const POOL_POINT = 10;
+const POOL_POINT = 8;
 const POOL_SPOT = 4;
+const POOL_POINT_SHADOWS = 1;
+const POOL_SPOT_SHADOWS = 1;
 
 const UP = new THREE.Vector3(0, 1, 0);
 const tmp = new THREE.Vector3();
@@ -240,6 +247,7 @@ export class Engine {
     this.renderer.setPixelRatio(q === 'high' ? Math.min(window.devicePixelRatio || 1, this.pixelCap) : Math.min(1, this.pixelCap));
     this.renderer.shadowMap.enabled = q === 'high';
     this.fx = q === 'high';
+    this.schedulePrewarm();
     this.scene.traverse((o) => {
       const m = (o as THREE.Mesh).material as THREE.Material | undefined;
       if (m) m.needsUpdate = true;
@@ -268,7 +276,8 @@ export class Engine {
     this.markShadows();
     if (was === 'walk') this.exitWalk();
     if (m === 'walk') this.enterWalk();
-    const lift = m === 'inside' ? 1 : 0;
+    if (m === 'build') this.ensureBuild();
+    const lift = m === 'inside' || m === 'build' ? 1 : 0;
     if (lift !== this.roofLift || this.roofAnim) this.roofAnim = { from: this.roofLift, to: lift, s: performance.now() };
     this.invalidate();
   }
@@ -339,13 +348,28 @@ export class Engine {
       this.poolGroup.add(l);
       if ((l as THREE.SpotLight).isSpotLight) this.poolGroup.add((l as THREE.SpotLight).target);
     };
+    // the strongest few pooled lamps also cast shadows, so furniture shades the floor and walls
+    // around it at night; the count is fixed, so turning lamps on/off never recompiles shaders
     for (let i = 0; i < POOL_POINT; i++) {
       const l = new THREE.PointLight(0xffffff, 0, 8, 2);
+      if (i < POOL_POINT_SHADOWS) {
+        l.castShadow = true;
+        l.shadow.mapSize.set(256, 256);
+        l.shadow.bias = -0.003;
+        l.shadow.camera.near = 0.08;
+      }
       this.poolPoint.push(l);
       add(l);
     }
     for (let i = 0; i < POOL_SPOT; i++) {
       const l = new THREE.SpotLight(0xffffff, 0, 9, 0.6, 0.55, 2);
+      if (i < POOL_SPOT_SHADOWS) {
+        l.castShadow = true;
+        l.shadow.mapSize.set(512, 512);
+        l.shadow.bias = -0.0008;
+        l.shadow.normalBias = 0.02;
+        l.shadow.camera.near = 0.08;
+      }
       this.poolSpot.push(l);
       add(l);
     }
@@ -446,6 +470,7 @@ export class Engine {
       light.color.copy(l.color);
       light.power = l.power;
       light.distance = l.distance;
+      if (light.castShadow) light.shadow.camera.far = l.distance;
       if ((light as THREE.SpotLight).isSpotLight) {
         const s = light as THREE.SpotLight;
         s.angle = l.angle;
@@ -459,7 +484,8 @@ export class Engine {
     this.poolSpot.forEach((p, i) => set(p, sps[i]));
     set(this.shadowPoint, sel?.kind === 'point' ? sel : undefined);
     set(this.shadowSpot, sel?.kind === 'spot' ? sel : undefined);
-    const selKey = sel ? `${sel.id}|${sel.pos.toArray().join()}` : '';
+    const casting = [...pts.slice(0, POOL_POINT_SHADOWS), ...sps.slice(0, POOL_SPOT_SHADOWS)].map((l) => `${l.id}@${l.pos.toArray().join()}`).join();
+    const selKey = (sel ? `${sel.id}|${sel.pos.toArray().join()}` : '') + '#' + casting;
     if (selKey !== this.poolSel) {
       this.poolSel = selKey;
       this.markShadows();
@@ -492,6 +518,64 @@ export class Engine {
   /** renders nothing on screen; used to redraw shadow maps including the shadow-only layer */
   private probeCam = new THREE.PerspectiveCamera(1, 1, 0.1, 0.2);
   private probeRT = new THREE.WebGLRenderTarget(1, 1);
+
+  private prewarmTimer = 0;
+  /**
+   * Lamps join the scene at dusk, which changes the light count and would make three.js
+   * compile a new shader for every material on the spot (a multi-second freeze). Compile the
+   * other side of dusk in the background ahead of time so the switch is instant.
+   */
+  private schedulePrewarm() {
+    clearTimeout(this.prewarmTimer);
+    this.prewarmTimer = window.setTimeout(() => {
+      if (this.pt) return;
+      const was = this.poolGroup.visible;
+      // compile only looks at visible objects: briefly show the hidden ones (ceilings, other storeys, roof)
+      const hidden: THREE.Object3D[] = [];
+      this.scene.traverse((o) => {
+        if (!o.visible && o !== this.poolGroup) {
+          hidden.push(o);
+          o.visible = true;
+        }
+      });
+      this.poolGroup.visible = !was;
+      // compileAsync compiles synchronously before returning, so the toggles can be undone at once;
+      // the wait for the driver happens in the background
+      const r = this.renderer;
+      const p = r.compileAsync(this.scene, this.camera);
+      // …and the variant used when drawing into the post-processing buffer (no tone mapping in the material)
+      const prevRT = r.getRenderTarget();
+      r.setRenderTarget(this.composer.readBuffer);
+      const p2 = r.compileAsync(this.scene, this.camera);
+      r.setRenderTarget(prevRT);
+      p2.catch(() => {});
+      // the lamp shadow-map shaders only get built by an actual shadow pass
+      if (this.renderer.shadowMap.enabled) this.updateShadows();
+      for (const o of hidden) o.visible = false;
+      this.poolGroup.visible = was;
+      this.markShadows();
+      // Direct3D drivers finish a shader on its first real draw: once compiled, draw the other
+      // lighting state once off-screen (1×1) and on screen behind a 1-pixel scissor
+      Promise.all([p, p2])
+        .then(() => {
+          if (this.pt) return;
+          const keep = this.poolGroup.visible;
+          this.poolGroup.visible = !keep;
+          const rt = r.getRenderTarget();
+          r.setRenderTarget(this.probeRT);
+          r.render(this.scene, this.camera);
+          r.setRenderTarget(null);
+          r.setScissorTest(true);
+          r.setScissor(0, 0, 1, 1);
+          r.render(this.scene, this.camera);
+          r.setScissorTest(false);
+          r.setRenderTarget(rt);
+          this.poolGroup.visible = keep;
+          this.invalidate();
+        })
+        .catch(() => {});
+    }, 1200);
+  }
 
   markShadows() {
     this.shadowDirty = true;
@@ -773,6 +857,9 @@ export class Engine {
     } else this.walker?.setWorld(h, this.structure!.segs);
     this.mapWallItems();
     this.applyDaylight();
+    if (this.mode === 'build') this.ensureBuild();
+    if (this.guidesOn) this.showSetbacks(true);
+    if (added) this.schedulePrewarm();
     this.buildRoomLights();
     this.placeCeilingItems();
     this.items.forEach((v) => this.syncLight(v));
@@ -820,6 +907,79 @@ export class Engine {
         if (m) scale(m, f);
       });
     });
+  }
+
+  /* ----------------------------------------------------------- build mode */
+  private build: BuildView | null = null;
+  private buildKey = '';
+  private buildHidden: Layer[] = [];
+  private buildExplode = 0;
+  private buildFurniture = false;
+  private buildGround: THREE.Mesh | null = null;
+
+  /** (Re)generate the construction model when the house has changed. */
+  private ensureBuild() {
+    const h = this.house;
+    const key = this.structKey + JSON.stringify([h.items.map((i) => [i.t, i.x, i.z, i.r, i.l ?? 0]), h.build ?? null]);
+    if (key === this.buildKey && this.build) return;
+    this.buildKey = key;
+    if (this.build) {
+      this.scene.remove(this.build.group);
+      this.build.dispose();
+    }
+    const { comps } = construct(h, (t) => catalogById.get(t));
+    this.build = new BuildView(comps);
+    this.build.setLayers(this.buildHidden);
+    this.build.setExplode(this.buildExplode);
+    this.scene.add(this.build.group);
+    if (!this.buildGround) {
+      // see-through ground so footings and buried pipes show below grade
+      const g = new THREE.Mesh(new THREE.PlaneGeometry(120, 120).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ color: '#7d6a52', transparent: true, opacity: 0.28, depthWrite: false, roughness: 1 }));
+      g.position.y = -0.005;
+      g.renderOrder = 2;
+      this.buildGround = g;
+      this.scene.add(g);
+    }
+    this.markShadows();
+  }
+
+  setBuildOptions(o: { hidden?: Layer[]; explode?: number; furniture?: boolean }) {
+    if (o.hidden) this.buildHidden = o.hidden;
+    if (o.explode !== undefined) this.buildExplode = o.explode;
+    if (o.furniture !== undefined) this.buildFurniture = o.furniture;
+    this.build?.setLayers(this.buildHidden);
+    this.build?.setExplode(this.buildExplode);
+    this.markShadows();
+  }
+
+  /* -------------------------------------------------------- setback guides */
+  private guides: THREE.Group | null = null;
+  private guidesOn = false;
+
+  /** Plot boundary (solid) and minimum setback lines (dashed) drawn on the ground. */
+  showSetbacks(on: boolean) {
+    this.guidesOn = on;
+    if (this.guides) {
+      this.scene.remove(this.guides);
+      this.guides.traverse((o) => (o as THREE.Line).geometry?.dispose());
+      this.guides = null;
+    }
+    if (on && this.house.rooms.length) {
+      const g = new THREE.Group();
+      const sb = setbackLines(this.house);
+      const loop = (x0: number, x1: number, z0: number, z1: number, mat: THREE.LineBasicMaterial | THREE.LineDashedMaterial) => {
+        const geo = new THREE.BufferGeometry().setFromPoints([x0, z0, x1, z0, x1, z1, x0, z1, x0, z0].reduce<THREE.Vector3[]>((a, _, i, arr) => (i % 2 ? a : [...a, new THREE.Vector3(arr[i], 0.06, arr[i + 1])]), []));
+        const l = new THREE.Line(geo, mat);
+        l.computeLineDistances();
+        l.renderOrder = 5;
+        g.add(l);
+      };
+      loop(sb.lot.x0, sb.lot.x1, sb.lot.z0, sb.lot.z1, new THREE.LineBasicMaterial({ color: '#d1342f', depthTest: false, transparent: true }));
+      loop(sb.x0, sb.x1, sb.z0, sb.z1, new THREE.LineDashedMaterial({ color: '#f2a93b', dashSize: 0.35, gapSize: 0.2, depthTest: false, transparent: true }));
+      this.guides = g;
+      this.scene.add(g);
+    }
+    this.invalidate();
   }
 
   /** Which wall each wall-mounted item hangs on (to hide it with a cut-down wall). */
@@ -1280,6 +1440,10 @@ export class Engine {
       return;
     }
     if (e.button > 0) return;
+    if (this.mode === 'build') {
+      this.down = { x: e.clientX, y: e.clientY };
+      return;
+    }
     const cr = this.cubeRect();
     if (!this.photo && e.clientX >= cr.x && e.clientX <= cr.x + cr.s && e.clientY >= cr.y && e.clientY <= cr.y + cr.s) {
       this.onCubeClick(e, cr);
@@ -1385,6 +1549,12 @@ export class Engine {
         if (d.kind === 'item') this.ev.itemMoved(d.id, d.obj.position.x, d.obj.position.z, d.obj.rotation.y);
         else this.ev.roomMoved(d.id, d.obj.position.x, d.obj.position.z);
       }
+      this.down = null;
+      return;
+    }
+    if (this.down && Math.hypot(e.clientX - this.down.x, e.clientY - this.down.y) < 5 && this.mode === 'build') {
+      this.setRay(e);
+      this.ev.inspect?.(this.build?.pick(this.ray) ?? null);
       this.down = null;
       return;
     }
@@ -1571,6 +1741,7 @@ export class Engine {
   private render(full = true) {
     const cam = this.camera.position;
     const looking = new THREE.Spherical().setFromVector3(cam.clone().sub(this.controls.target));
+    const building = this.mode === 'build' && !!this.build;
     const inside = this.mode === 'inside' && !this.photo;
     const AL = this.level;
     const showLevel = (l: number) => !inside || l <= AL;
@@ -1578,9 +1749,11 @@ export class Engine {
     const orig = this.photo?.original ?? false;
     const photoRoom = this.photo?.roomId ?? null;
 
+    if (this.build) this.build.group.visible = building;
+    if (this.buildGround) this.buildGround.visible = building;
     this.rooms.forEach((v) => {
       const L = lvl(v.room);
-      v.group.visible = showLevel(L);
+      v.group.visible = showLevel(L) && !building;
       v.label.visible = showLabels && (!inside || L === AL);
       v.floor.material = photoRoom === v.room.id && orig ? this.shadowMat : v.floorMat;
       if (v.ceiling) {
@@ -1592,7 +1765,8 @@ export class Engine {
 
     const st = this.structure;
     this.lowWalls.clear();
-    if (st) {
+    if (st) st.group.visible = !building;
+    if (st && !building) {
       for (const wv of st.walls) {
         if (!showLevel(wv.level)) {
           wv.group.visible = false;
@@ -1636,7 +1810,7 @@ export class Engine {
 
     this.items.forEach((v) => {
       const wv = this.wallOf.get(v.item.id);
-      v.group.visible = showLevel(lvl(v.item)) && !(wv && this.lowWalls.has(wv) && !this.photo);
+      v.group.visible = building ? this.buildFurniture && this.buildExplode < 0.02 : showLevel(lvl(v.item)) && !(wv && this.lowWalls.has(wv) && !this.photo);
       // ceiling fixtures would float in mid-air when looking down into a roofless room
       if (v.group.visible && inside && catalogById.get(v.item.t)?.mount === 'ceiling') v.group.visible = cam.y < v.group.position.y + 2.7;
     });

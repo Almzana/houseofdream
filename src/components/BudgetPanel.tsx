@@ -35,7 +35,24 @@ export function BudgetPanel() {
         <div><small>งานพื้น</small><b>{baht(totals.floor)}</b></div>
         <div><small>งานผนัง</small><b>{baht(totals.wall)}</b></div>
         <div><small>ภายนอก</small><b>{baht(totals.shell)}</b></div>
+        <div><small>โครงสร้าง · ระบบ</small><b>{baht(totals.works)}</b></div>
         <div><small>ของแต่ง</small><b>{baht(totals.items)}</b></div>
+      </div>
+
+      <div className="sec">
+        <h2>โครงสร้าง · ประปา · ไฟฟ้า</h2>
+        <p className="note">คำนวณจากผังบ้าน: เสาเข็ม ฐานราก เสา คาน พื้น ผนังก่อ ฝ้า ท่อ สายไฟ จุดปลั๊ก/สวิตช์ ดูเป็น 3D ได้ในโหมด “โครงสร้าง”</p>
+        {[...new Set(boq.works.lines.map((l) => l.group))].map((g) => (
+          <details key={g} className="room">
+            <summary>
+              <span>{g}</span>
+              <b>{baht(boq.works.lines.filter((l) => l.group === g).reduce((a, l) => a + l.qty * l.rate, 0))}</b>
+            </summary>
+            <div className="body">
+              <Lines lines={boq.works.lines.filter((l) => l.group === g).map((l) => [l.name, l.rate ? `${l.qty.toLocaleString('th-TH')} ${l.unit} · ${baht(l.qty * l.rate)}` : `${l.qty.toLocaleString('th-TH')} ${l.unit}`] as Line)} />
+            </div>
+          </details>
+        ))}
       </div>
 
       <div className="sec">
@@ -91,7 +108,7 @@ export function BudgetPanel() {
       </div>
       <p className="note">
         ราคาเป็นค่าประมาณจากราคาตลาดทั่วไปในไทย (วัสดุ + ค่าแรงช่าง) ใช้วางแผนเบื้องต้นเท่านั้น ราคาจริงขึ้นกับแบรนด์ ร้าน และหน้างาน
-        พื้นที่ผนังหักประตู 1 บานต่อห้อง และเผื่อเศษวัสดุ 10% · งานภายนอกรวมหลังคา สีภายนอก และรั้ว ยังไม่รวมโครงสร้างเสาคาน ฐานราก และงานระบบ
+        พื้นที่ผนังหักประตู 1 บานต่อห้อง และเผื่อเศษวัสดุ 10% · งานภายนอกรวมหลังคา สีภายนอก และรั้ว ราคาโครงสร้างและงานระบบเป็นค่าประมาณจากปริมาณที่คำนวณได้ ควรให้วิศวกรออกแบบและคำนวณโครงสร้างจริงก่อนก่อสร้าง
       </p>
     </section>
   );

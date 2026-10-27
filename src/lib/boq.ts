@@ -2,6 +2,7 @@
 import { PAINT, floorById, wallById } from '../data/surfaces';
 import type { House, Room } from '../types';
 import { shellStats } from './shell';
+import { construct, type Lookup as BuildLookup, type QtyLine } from './construction';
 
 export type Line = [string, string];
 export interface RoomBoq {
@@ -24,7 +25,9 @@ export interface Boq {
   rooms: RoomBoq[];
   items: ItemLine[];
   shell: { lines: Line[]; cost: number; roofA: number; wallA: number; fence: number };
-  totals: { floor: number; wall: number; items: number; shell: number; all: number; area: number };
+  /** structure and services: piles to wiring */
+  works: { lines: QtyLine[]; cost: number };
+  totals: { floor: number; wall: number; items: number; shell: number; works: number; all: number; area: number };
 }
 
 export const baht = (n: number) => '฿' + Math.round(n).toLocaleString('th-TH');
@@ -115,7 +118,7 @@ export function roomBoq(room: Room): RoomBoq {
   return { room, floorA, wallA, perim, floor: { lines: fl, cost: fc }, wall: { lines: wl, cost: wc }, cost: fc + wc };
 }
 
-type Lookup = (t: string) => { name: string; price: number; opening?: { w: number; y0: number; y1: number; door?: boolean } } | undefined;
+type Lookup = (t: string) => ({ name: string; price: number; opening?: { w: number; y0: number; y1: number; door?: boolean }; light?: unknown; mount?: string }) | undefined;
 
 const ROOF = { tile: 380, frame: 550, labor: 220, perM2: 10, flat: 950 };
 const EXT_PAINT = { gallon: 1650, cover: 30, labor: 110 };
@@ -176,5 +179,7 @@ export function houseBoq(house: House, lookup: Lookup): Boq {
   const it = items.reduce((s, i) => s + i.total, 0);
   const area = house.rooms.filter((r) => !r.outdoor).reduce((s, r) => s + r.w * r.d, 0);
   const shell = shellBoq(house, lookup);
-  return { rooms, items, shell, totals: { floor, wall, items: it, shell: shell.cost, all: floor + wall + it + shell.cost, area } };
+  const wl = house.rooms.length ? construct(house, lookup as BuildLookup).quantities : [];
+  const works = { lines: wl, cost: wl.reduce((a, l) => a + l.qty * l.rate, 0) };
+  return { rooms, items, shell, works, totals: { floor, wall, items: it, shell: shell.cost, works: works.cost, all: floor + wall + it + shell.cost + works.cost, area } };
 }

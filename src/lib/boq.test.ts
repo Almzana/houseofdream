@@ -42,7 +42,8 @@ describe('houseBoq', () => {
       () => ({ name: 'X', price: 1000 }),
     );
     expect(b.items).toEqual([{ t: 'x', name: 'X', n: 2, unit: 1000, total: 2000 }]);
-    expect(b.totals.all).toBeCloseTo(b.totals.floor + b.totals.wall + b.totals.shell + 2000);
+    expect(b.totals.all).toBeCloseTo(b.totals.floor + b.totals.wall + b.totals.shell + b.totals.works + 2000);
+    expect(b.totals.works).toBeGreaterThan(0);
     expect(b.totals.area).toBeCloseTo(6);
   });
 });
@@ -51,7 +52,7 @@ describe('shellBoq', () => {
   it('measures the roof, the facade minus openings and the fence', () => {
     const door = { opening: { w: 1, y0: 0, y1: 2, door: true } };
     const s = shellBoq(
-      { rooms: [room()], items: [{ id: 'd', t: 'door', x: 0, z: 1.5, r: Math.PI, c: '' }], ext: { roof: 'hip', roofColor: '#000', pitch: 30, wallPat: 'plain', wallColor: '#fff', fence: true } },
+      { rooms: [room()], items: [{ id: 'd', t: 'door', x: 0, z: 1.5, r: Math.PI, c: '' }], ext: { roof: 'hip', roofColor: '#000', pitch: 30, wallPat: 'plain', wallColor: '#fff', fence: true }, site: { left: 2, right: 2, back: 2, front: 2, road: 6 } },
       (t) => (t === 'door' ? { name: 'ประตู', price: 0, ...door } : undefined),
     );
     // 2 × 3 m room, 2.5 m walls, one 1 × 2 m door

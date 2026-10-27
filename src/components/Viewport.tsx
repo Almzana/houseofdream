@@ -7,10 +7,13 @@ import type { ViewMode, WallMode } from '../types';
 import { NavPad } from './NavPad';
 import { SelectionBar } from './SelectionBar';
 import { PhotoCalib, showPhotoView } from './PhotoCalib';
+import { BuildPanel } from './BuildPanel';
+import type { BuildPick } from '../engine/buildview';
 
 const MODES: { id: ViewMode; name: string; icon: JSX.Element }[] = [
   { id: 'outside', name: 'ภายนอก', icon: <path d="M3 11 12 4l9 7 M5 10v10h14V10 M10 20v-5h4v5" /> },
   { id: 'inside', name: 'ภายใน', icon: <path d="M3 9h18 M5 9v11h14V9 M9 13h6 M7 4l5-1 5 1" /> },
+  { id: 'build', name: 'โครงสร้าง', icon: <path d="M4 20h16 M6 20V9l6-5 6 5v11 M6 13h12 M10 20v-7 M14 20v-7 M6 9h12" /> },
   { id: 'walk', name: 'เดินชม', icon: <path d="M13 4a1.5 1.5 0 1 1 0 .1 M10 21l2-6 3 3v3 M12 15l-1-5 4 1 2 3 M11 10l-3 2-1 3" /> },
 ];
 const WALLS: { id: WallMode; name: string }[] = [
@@ -40,6 +43,7 @@ export function Viewport() {
   const [az, setAz] = useState(0);
   /** realistic render progress: null = off, s = −2 while the scene is being prepared */
   const [rt, setRt] = useState<{ s: number; t: number } | null>(null);
+  const [pick, setPick] = useState<BuildPick | null>(null);
   const selRoom = useStore((s) => s.selRoom);
   const rooms = useStore((s) => s.house.rooms);
   const planMode = useStore((s) => s.planMode);
@@ -61,6 +65,7 @@ export function Viewport() {
       itemMoved: (id, x, z, r) => useStore.getState().updateItem(id, { x: +x.toFixed(3), z: +z.toFixed(3), r: +r.toFixed(4) }),
       roomMoved: (id, x, z) => useStore.getState().moveRoom(id, +x.toFixed(3), +z.toFixed(3)),
       view: (theta) => setAz(theta),
+      inspect: (p) => setPick(p),
     });
     setEngine(e);
     e.onRender = (s, t) => setRt(s === -1 ? null : { s, t });
@@ -72,6 +77,7 @@ export function Viewport() {
     e.setHouse(st.house);
     e.setViewMode(st.viewMode);
     e.setSelection(st.selItem, st.selRoom);
+    e.showSetbacks(st.tab === 'code');
     e.view('iso');
     const unsub = useStore.subscribe((s, p) => {
       if (s.house !== p.house) e.setHouse(s.house);
@@ -80,6 +86,7 @@ export function Viewport() {
       if (s.quality !== p.quality) e.setQuality(s.quality);
       if (s.planMode !== p.planMode) e.setPlanMode(s.planMode);
       if (s.hour !== p.hour) e.setHour(s.hour);
+      if (s.tab !== p.tab) e.showSetbacks(s.tab === 'code');
       if (s.level !== p.level) e.setLevel(s.level);
       if (s.viewMode !== p.viewMode) {
         e.setViewMode(s.viewMode);
@@ -111,6 +118,8 @@ export function Viewport() {
     ? 'ลากของเพื่อย้าย · กด “มุม 3D” ที่ปุ่มด้านขวาเพื่อหมุนดูรอบห้อง'
     : walking
       ? 'W A S D หรือลูกศร = เดิน · ลากเมาส์ = มองรอบ · ดับเบิลคลิกพื้น = เดินไปตรงนั้น · Shift = เดินเร็ว'
+      : viewMode === 'build'
+        ? 'คลิกชิ้นส่วนเพื่อดูสเปก · เลื่อน “แยกชิ้นส่วน” เพื่อถอดประกอบ · ติ๊กเลือกชั้นงานที่ต้องการดู'
       : planMode
         ? 'โหมดจัดผัง: ลากพื้นห้องเพื่อย้ายห้อง ขอบห้องจะติดกันเอง'
         : viewMode === 'outside'
@@ -190,7 +199,7 @@ export function Viewport() {
         </div>
       )}
 
-      {!photo.active && !walking && !rt && (
+      {!photo.active && !walking && !rt && viewMode !== 'build' && (
         <div className="float viewbtns" aria-label="มุมกล้อง">
           <button onClick={() => getEngine()?.view('iso')}>มุม 3D</button>
           <button onClick={() => getEngine()?.view('top')}>มองจากบน</button>
@@ -231,7 +240,8 @@ export function Viewport() {
       ) : (
         !photo.active && <NavPad azimuth={az} />
       )}
-      {!walking && !rt && <SelectionBar />}
+      {!walking && !rt && viewMode !== 'build' && <SelectionBar />}
+      {viewMode === 'build' && !photo.active && <BuildPanel pick={pick} onClose={() => setPick(null)} />}
       {photo.calibOpen && <PhotoCalib />}
 
       {!seenTips && (

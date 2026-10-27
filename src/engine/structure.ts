@@ -380,9 +380,11 @@ function buildSite(house: House, ext: Exterior, extMat: THREE.Material) {
   plane(S, 1.6, surfMat(PAVING, '#ffffff', {}, S / PAVING.unit[0], 1.6 / PAVING.unit[1]), 0, -0.012, fz + 0.8);
   const kerb = box(S, 0.15, 0.15, new THREE.MeshStandardMaterial({ color: '#b9b4ab', roughness: 0.9 }), 0, -0.05, fz + 1.65, g);
   kerb.receiveShadow = true;
-  plane(S, 7, surfMat(ASPHALT, '#ffffff', { envMapIntensity: 0.2 }, S / ASPHALT.unit[0], 7 / ASPHALT.unit[1]), 0, -0.1, fz + 5.2);
+  const RW = Math.max(3, house.site?.road ?? 6);
+  const rc = fz + 1.7 + RW / 2;
+  plane(S, RW, surfMat(ASPHALT, '#ffffff', { envMapIntensity: 0.2 }, S / ASPHALT.unit[0], RW / ASPHALT.unit[1]), 0, -0.1, rc);
   const dash = new THREE.MeshStandardMaterial({ color: '#f2efe6', roughness: 0.8 });
-  for (let x = -S / 2; x < S / 2; x += 4) box(2, 0.005, 0.12, dash, x, -0.095, fz + 5.2, g);
+  for (let x = -S / 2; x < S / 2; x += 4) box(2, 0.005, 0.12, dash, x, -0.095, rc, g);
 
   // driveways and the path to the gate
   const gates = gatesOf(house, lot);

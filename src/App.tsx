@@ -5,6 +5,7 @@ import { HousePanel } from './components/HousePanel';
 import { MaterialsPanel } from './components/MaterialsPanel';
 import { CatalogPanel } from './components/CatalogPanel';
 import { BudgetPanel, useBoq } from './components/BudgetPanel';
+import { CodePanel } from './components/CodePanel';
 import { baht } from './lib/boq';
 
 const TABS: { id: Tab; name: string; icon: JSX.Element }[] = [
@@ -12,6 +13,7 @@ const TABS: { id: Tab; name: string; icon: JSX.Element }[] = [
   { id: 'materials', name: 'พื้น/ผนัง', icon: <path d="M4 4h7v7H4z M13 4h7v7h-7z M4 13h7v7H4z M13 13h7v7h-7z" /> },
   { id: 'catalog', name: 'ของแต่ง', icon: <path d="M4 13h16v4H4z M6 13V9a3 3 0 0 1 3-3h6a3 3 0 0 1 3 3v4 M6 17v2 M18 17v2" /> },
   { id: 'budget', name: 'สรุปงบ', icon: <path d="M5 3h14v18H5z M8 7h8 M8 11h8 M8 15h5" /> },
+  { id: 'code', name: 'ตรวจแบบ', icon: <path d="M12 3l8 3v6c0 4.5-3.4 8-8 9-4.6-1-8-4.5-8-9V6z M8.5 12l2.5 2.5 4.5-5" /> },
 ];
 
 export function App() {
@@ -71,6 +73,7 @@ export function App() {
           {s.tab === 'materials' && <MaterialsPanel />}
           {s.tab === 'catalog' && <CatalogPanel />}
           {s.tab === 'budget' && <BudgetPanel />}
+          {s.tab === 'code' && <CodePanel />}
         </aside>
       </main>
     </div>
