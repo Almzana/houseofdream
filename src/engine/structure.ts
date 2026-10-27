@@ -7,8 +7,8 @@ import * as THREE from 'three';
 import { catalogById } from '../data/catalog';
 import { ASPHALT, METAL_SHEET, PAVING, ROOF_TILE, floorById, wallById, type Surface } from '../data/surfaces';
 import { DEFAULT_EXT, LEVEL_H, type Exterior, type House, type Room } from '../types';
-import { OVERHANG, PART_T, WALL_T, gatesOf, inRoom, levelY, levelsOf, lotOf, openingsOf, roofPlan } from '../lib/shell';
-import { isExterior, wallPieces, wallSegments, type Segment } from '../lib/walls';
+import { OVERHANG, PART_T, WALL_T, gatesOf, inRoom, levelY, levelsOf, lotOf, openingsOf, roofPlan, wallH } from '../lib/shell';
+import { wallPieces, wallSegments, type Segment } from '../lib/walls';
 import { buildModel } from './models';
 import { surfaceSet } from './textures';
 import { mergeShadowCasters, mergeStatic } from './merge';
@@ -178,8 +178,23 @@ export function buildStructure(house: House): Structure {
     const here = indoor.filter((r) => lv(r) === l);
     const inside = (x: number, z: number) => here.some((r) => inRoom(r, x, z));
     for (const s of list) {
-      const exterior = isExterior(s);
-      const H = exterior && l < top ? LEVEL_H : s.h;
+      if (s.void) {
+        // edge of a double-height space: glass balustrade with a steel handrail, no wall
+        const len = s.s1 - s.s0, mid = (s.s0 + s.s1) / 2;
+        const rg = new THREE.Group();
+        if (s.axis === 'x') rg.position.set(mid, levelY(l), s.c);
+        else {
+          rg.position.set(s.c, levelY(l), mid);
+          rg.rotation.y = Math.PI / 2;
+        }
+        const glassM = new THREE.MeshPhysicalMaterial({ color: '#dfeef0', roughness: 0.05, transparent: true, opacity: 0.25, depthWrite: false, side: THREE.DoubleSide });
+        const railM = new THREE.MeshStandardMaterial({ color: '#2f3134', metalness: 0.7, roughness: 0.4 });
+        box(len, 1.0, 0.012, glassM, 0, 0.55, 0, rg).userData.noShadow = true;
+        box(len, 0.05, 0.07, railM, 0, 1.08, 0, rg);
+        group.add(rg);
+        continue;
+      }
+      const H = wallH(s, l, top);
       const seg: Segment = { ...s, h: H };
       // o = which side is outdoors (+1/−1), 0 for partitions
       const o = !s.minus ? -1 : !s.plus ? 1 : 0;
@@ -422,7 +437,17 @@ function buildSite(house: House, ext: Exterior, extMat: THREE.Material) {
     return m;
   };
   const S = 240;
-  plane(S, S, surfMat(floorById('grass'), '#d9e6cc', { envMapIntensity: 0.3 }, S / 2, S / 2), 0, -0.02, 0).userData.ground = true;
+  // lawn, with holes where pools are dug in
+  const lawn = new THREE.Shape([new THREE.Vector2(-S / 2, -S / 2), new THREE.Vector2(S / 2, -S / 2), new THREE.Vector2(S / 2, S / 2), new THREE.Vector2(-S / 2, S / 2)]);
+  for (const p of house.rooms.filter((r) => r.type === 'pool' && (r.level ?? 0) === 0)) {
+    const [x0, x1, z0, z1] = [p.x - p.w / 2 - 0.3, p.x + p.w / 2 + 0.3, p.z - p.d / 2 - 0.3, p.z + p.d / 2 + 0.3];
+    lawn.holes.push(new THREE.Path([new THREE.Vector2(x0, -z0), new THREE.Vector2(x0, -z1), new THREE.Vector2(x1, -z1), new THREE.Vector2(x1, -z0)]));
+  }
+  const ground = new THREE.Mesh(new THREE.ShapeGeometry(lawn).rotateX(-Math.PI / 2), surfMat(floorById('grass'), '#d9e6cc', { envMapIntensity: 0.3 }, 1 / 2, 1 / 2));
+  ground.position.y = -0.02;
+  ground.receiveShadow = true;
+  ground.userData.ground = true;
+  g.add(ground);
 
   // footpath, kerb and street along the front (+z)
   const fz = lot.z1;

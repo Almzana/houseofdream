@@ -13,6 +13,17 @@ export const ROOM_TYPES: Record<RoomType, { name: string; floor: string; wallPat
   balcony: { name: 'ระเบียง', floor: 'deck', wallPat: 'plain', wallColor: '#f4f2ee', h: 2.7, outdoor: true },
   garden: { name: 'สวน', floor: 'grass', wallPat: 'plain', wallColor: '#f4f2ee', h: 2.7, outdoor: true },
   garage: { name: 'โรงจอดรถ', floor: 'paver', wallPat: 'plain', wallColor: '#f4f2ee', h: 2.7, outdoor: true },
+  pool: { name: 'สระว่ายน้ำ', floor: 'paver', wallPat: 'plain', wallColor: '#f4f2ee', h: 2.7, outdoor: true },
+  terrace: { name: 'ลานพักผ่อน / Pool deck', floor: 'deck', wallPat: 'plain', wallColor: '#f4f2ee', h: 2.7, outdoor: true },
+  theater: { name: 'ห้องโฮมเธียเตอร์', floor: 'walnut', wallPat: 'slats', wallColor: '#3b3531', h: 2.7 },
+  gym: { name: 'ห้องออกกำลังกาย', floor: 'concrete', wallPat: 'plain', wallColor: '#d8d2c8', h: 2.7 },
+  spa: { name: 'สปา / ซาวน่า', floor: 'marble', wallPat: 'stone', wallColor: '#e8dcc8', h: 2.7 },
+  wine: { name: 'ห้องเก็บไวน์', floor: 'terrazzo', wallPat: 'brick', wallColor: '#b9a089', h: 2.7 },
+  closet: { name: 'ห้องแต่งตัว (Walk-in)', floor: 'oak', wallPat: 'plain', wallColor: '#ece6dc', h: 2.7 },
+  library: { name: 'ห้องสมุด', floor: 'walnut', wallPat: 'slats', wallColor: '#c9b49a', h: 2.7 },
+  maid: { name: 'ห้องแม่บ้าน', floor: 'granito', wallPat: 'plain', wallColor: '#f4f2ee', h: 2.6 },
+  lift: { name: 'ลิฟต์', floor: 'marble', wallPat: 'plain', wallColor: '#d8d2c8', h: 2.7 },
+  void: { name: 'ช่องเปิดโล่ง (Double height)', floor: 'oak', wallPat: 'plain', wallColor: '#f4f2ee', h: 2.7, outdoor: true },
 };
 
 let seq = 0;
@@ -42,6 +53,14 @@ export interface Template {
 }
 
 export const TEMPLATES: Template[] = [
+  {
+    id: 'luxury', name: 'Luxury Villa 2 ชั้น', desc: '5 ห้องนอน en-suite · โถงสูง 2 ชั้น · ลิฟต์ · สระว่ายน้ำ',
+    make: () => generateHouse({ floors: 2, bedrooms: 5, bathrooms: 5, garage: true, garden: true, roof: 'hip', tier: 'luxury' }),
+  },
+  {
+    id: 'ultra', name: 'Ultra Luxury Mansion 3 ชั้น', desc: 'Master suite ทั้งชั้น · เธียเตอร์ สปา ฟิตเนส · ห้องไวน์',
+    make: () => generateHouse({ floors: 2, bedrooms: 6, bathrooms: 6, garage: true, garden: true, roof: 'flat', tier: 'ultra' }),
+  },
   {
     id: 'house2', name: 'บ้าน 2 ชั้น 4 ห้องนอน', desc: '3 ห้องน้ำ · หลังคาปั้นหยา · โรงจอดรถ',
     make: () => generateHouse({ floors: 2, bedrooms: 4, bathrooms: 3, garage: true, garden: true, roof: 'hip' }),

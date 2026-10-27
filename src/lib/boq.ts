@@ -1,6 +1,6 @@
 /** Bill of quantities: material amounts and rough Thai-market costs per room. */
 import { PAINT, floorById, wallById } from '../data/surfaces';
-import type { House, Room } from '../types';
+import { applyStorey, type House, type Room } from '../types';
 import { shellStats } from './shell';
 import { construct, type Lookup as BuildLookup, type QtyLine } from './construction';
 
@@ -165,6 +165,7 @@ export function shellBoq(house: House, lookup: Lookup) {
 }
 
 export function houseBoq(house: House, lookup: Lookup): Boq {
+  applyStorey(house);
   const rooms = house.rooms.map(roomBoq);
   const counts = new Map<string, number>();
   for (const it of house.items) counts.set(it.t, (counts.get(it.t) ?? 0) + 1);

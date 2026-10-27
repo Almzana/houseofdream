@@ -9,8 +9,8 @@ import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { catalogById, type CatalogItem } from '../data/catalog';
-import { floorById } from '../data/surfaces';
-import type { House, Item, Quality, Room, ViewMode, WallMode } from '../types';
+import { WATER, floorById, wallById } from '../data/surfaces';
+import { LEVEL_H, applyStorey, type House, type Item, type Quality, type Room, type ViewMode, type WallMode } from '../types';
 import { inRoom, levelY } from '../lib/shell';
 import { setbackLines } from '../lib/thaicode';
 import { kelvinRGB } from '../lib/kelvin';
@@ -844,6 +844,7 @@ export class Engine {
 
   /* ------------------------------------------------------------------ sync */
   setHouse(h: House) {
+    applyStorey(h);
     if (this.pt && h !== this.house) this.stopRealistic(true);
     this.house = h;
     const stairs = h.items.filter((i) => catalogById.get(i.t)?.stair);
@@ -864,7 +865,8 @@ export class Engine {
     for (const it of h.items) {
       seenI.add(it.id);
       const old = this.items.get(it.id);
-      const key = `${it.t}|${it.c}`;
+      // stairs are built for the storey height, so a height change rebuilds them
+      const key = `${it.t}|${it.c}${catalogById.get(it.t)?.stair ? `|${LEVEL_H}` : ""}`;
       const y = levelY(lvl(it));
       if (old && old.key === key) {
         old.group.position.set(it.x, y, it.z);
@@ -1142,7 +1144,9 @@ export class Engine {
     floor.receiveShadow = true;
     floor.userData.roomId = room.id;
     g.add(floor);
-    if (!room.outdoor || L > 0) {
+    if (room.type === 'void') floor.visible = false; // open to the room below; still clickable
+    if (room.type === 'pool') this.buildSwimmingPool(room, g, floor);
+    if ((!room.outdoor || L > 0) && room.type !== 'void') {
       const t = L > 0 ? 0.3 : 0.12;
       const pad = room.outdoor ? 0 : 0.1;
       const bs = holes.floor.length ? shape(holes.floor) : null;
@@ -1176,7 +1180,41 @@ export class Engine {
     label.position.set(0, 0.3, 0);
     g.add(label);
     this.roomsGroup.add(g);
-    return { key, room, group: g, floor, floorMat, ceiling, label, proxy };
+    return { key, room, group: g, floor, floorMat: floor.material as THREE.MeshPhysicalMaterial, ceiling, label, proxy };
+  }
+
+  /** Swimming pool: tiled basin 1.5 m deep, stone coping, rippled water just below the edge. */
+  private buildSwimmingPool(room: Room, g: THREE.Group, water: THREE.Mesh) {
+    const { w, d } = room;
+    const depth = 1.5;
+    const tile = new THREE.MeshStandardMaterial({ ...surfaceSet(wallById('mosaic')), color: '#7cc6d6', roughness: 1, envMapIntensity: 0.6 });
+    for (const [len, x, z, ry] of [[w, 0, -d / 2, 0], [w, 0, d / 2, Math.PI], [d, -w / 2, 0, Math.PI / 2], [d, w / 2, 0, -Math.PI / 2]] as const) {
+      const wall = new THREE.Mesh(new THREE.PlaneGeometry(len, depth), tile);
+      wall.position.set(x, -depth / 2, z);
+      wall.rotation.y = ry;
+      wall.receiveShadow = true;
+      g.add(wall);
+    }
+    const bottom = new THREE.Mesh(new THREE.PlaneGeometry(w, d).rotateX(-Math.PI / 2), tile);
+    bottom.position.y = -depth;
+    bottom.receiveShadow = true;
+    g.add(bottom);
+    const coping = new THREE.MeshStandardMaterial({ color: '#e7e1d6', roughness: 0.75 });
+    for (const [sx, sz, x, z] of [[w + 0.6, 0.3, 0, -d / 2 - 0.15], [w + 0.6, 0.3, 0, d / 2 + 0.15], [0.3, d, -w / 2 - 0.15, 0], [0.3, d, w / 2 + 0.15, 0]] as const) {
+      const c = new THREE.Mesh(new THREE.BoxGeometry(sx, 0.05, sz), coping);
+      c.position.set(x, 0.025, z);
+      c.receiveShadow = c.castShadow = true;
+      g.add(c);
+    }
+    const ws = surfaceSet(WATER, 1 / WATER.unit[0], 1 / WATER.unit[1]);
+    water.material = new THREE.MeshPhysicalMaterial({
+      color: '#2f9fc0', normalMap: ws.normalMap, normalScale: new THREE.Vector2(0.6, 0.6), roughness: 0.04, metalness: 0,
+      transparent: true, opacity: 0.72, clearcoat: 1, clearcoatRoughness: 0.03, envMapIntensity: 1.4, depthWrite: false,
+    });
+    water.position.y = -0.1;
+    water.receiveShadow = false;
+    ws.map.dispose();
+    ws.roughnessMap.dispose();
   }
 
   private removeRoomView(v: RoomView) {

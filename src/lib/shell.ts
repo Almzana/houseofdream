@@ -1,6 +1,15 @@
 /** Building-shell measurements shared by the 3D builder and the bill of quantities. */
 import { DEFAULT_EXT, DEFAULT_SITE, LEVEL_H, type Exterior, type House, type Room } from '../types';
-import { isExterior, wallSegments, type WallOpening } from './walls';
+import { isExterior, wallSegments, type Segment, type WallOpening } from './walls';
+
+/**
+ * Built height of a wall run on storey l. Outside walls of lower storeys reach the next floor (and
+ * all the way up beside a double-height room); partitions stop at the storey height.
+ */
+export function wallH(s: Segment, l: number, top: number) {
+  if (isExterior(s)) return Math.max(s.h, l < top ? LEVEL_H : 0);
+  return l < top ? Math.min(s.h, LEVEL_H) : s.h;
+}
 
 export const WALL_T = 0.2; // exterior wall thickness (built outwards from the room edge)
 export const PART_T = 0.1; // partition thickness (centred on the shared edge)
@@ -21,7 +30,7 @@ export function inRoom(r: Room, x: number, z: number, pad = 0) {
 
 /** Bounding box of the indoor rooms of one storey. */
 export function footprint(rooms: Room[], level: number) {
-  const list = rooms.filter((r) => !r.outdoor && lv(r) === level);
+  const list = rooms.filter((r) => (!r.outdoor || r.type === 'void') && lv(r) === level);
   if (!list.length) return null;
   return {
     x0: Math.min(...list.map((r) => r.x - r.w / 2)),
@@ -61,8 +70,8 @@ export function shellStats(house: House, lookup: Parameters<typeof openingsOf>[1
   let openA = 0;
   for (const l of levels) {
     for (const s of wallSegments(house.rooms, ops, l)) {
-      if (!isExterior(s)) continue;
-      const h = l < top ? LEVEL_H : s.h;
+      if (!isExterior(s) || s.void) continue;
+      const h = wallH(s, l, top);
       wallA += (s.s1 - s.s0) * h;
       openA += s.gaps.reduce((a, g) => a + (g.b - g.a) * (g.y1 - g.y0), 0);
     }

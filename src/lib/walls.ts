@@ -14,6 +14,7 @@ export interface WallRoom {
   h: number;
   outdoor?: boolean;
   level?: number;
+  type?: string;
 }
 
 export interface WallOpening {
@@ -47,6 +48,8 @@ export interface Segment {
   minus: string | null;
   h: number;
   gaps: Gap[];
+  /** edge of a double-height void: a balustrade, not a wall */
+  void?: boolean;
 }
 
 const EPS = 1e-3;
@@ -98,6 +101,15 @@ export function wallSegments(rooms: WallRoom[], openings: WallOpening[], level: 
         out.push(cur);
       }
     }
+  }
+
+  // an exterior edge that looks into a double-height void gets a balustrade instead of a wall
+  const voids = rooms.filter((r) => r.type === 'void' && (r.level ?? 0) === level);
+  for (const s of out) {
+    if (!voids.length || (s.plus && s.minus)) continue;
+    const o = !s.minus ? -1 : 1, mid = (s.s0 + s.s1) / 2, p = s.c + o * 0.15;
+    const [x, z] = s.axis === 'x' ? [mid, p] : [p, mid];
+    if (voids.some((v) => Math.abs(x - v.x) <= v.w / 2 && Math.abs(z - v.z) <= v.d / 2)) s.void = true;
   }
 
   for (const o of openings) {

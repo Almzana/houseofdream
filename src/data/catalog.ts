@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { MAT, add, cy, lathe, noShadow, rb, shade, sphere, tube } from '../engine/kit';
 import { ctx2d, mkCanvas, rng } from '../engine/canvas';
 import { sharedTex } from '../engine/textures';
+import { stairSteps } from '../types';
 
 export type CatId = 'bath' | 'kitchen' | 'living' | 'bedroom' | 'dining' | 'office' | 'doors' | 'lights' | 'decor' | 'outdoor';
 
@@ -402,20 +403,132 @@ export const CATALOG: CatalogItem[] = [
       noShadow(rb(g, 1.98, 1.78, 0.01, 0.002, MAT.window(), 0, 1.425, 0));
       rb(g, 2.15, 0.03, 0.22, 0.006, MAT.stone('#e9e6e0'), 0, 0.5, 0.05);
     } },
-  { id: 'stair', cats: ['doors', 'living'], name: 'บันไดขึ้นชั้นบน', size: '100×400 ซม.', price: 85000, colors: ['#a47a52', '#e9e6e0', '#5b4130', '#2b2b2b'], stair: { w: 1.0, len: 4.0 },
+  { id: 'stair', cats: ['doors', 'living'], name: 'บันไดขึ้นชั้นบน', size: '100×400 ซม.', price: 85000, colors: ['#a47a52', '#e9e6e0', '#5b4130', '#2b2b2b'], stair: { w: 1.0, get len() { return stairSteps().len; } },
     build(c, g) {
-      const n = 16, rise = 3.0 / n, go = 4.0 / n, base = MAT.matte('#d9d4cc'), tread = c === '#e9e6e0' ? MAT.stone(c) : MAT.wood(c);
+      // steps follow the house's storey height (risers ≤ 19 cm, treads 25 cm)
+      const { n, rise, go, landing, len: run } = stairSteps(), H = n * rise;
+      const half = Math.ceil(n / 2);
+      const base = MAT.matte('#d9d4cc'), tread = c === '#e9e6e0' ? MAT.stone(c) : MAT.wood(c);
       for (let i = 0; i < n; i++) {
-        const z = 2.0 - (i + 0.5) * go, top = (i + 1) * rise;
+        const z = run / 2 - (i + 0.5) * go - (landing && i >= half ? landing : 0), top = (i + 1) * rise;
         rb(g, 1.0, top - 0.03, go, 0.002, base, 0, (top - 0.03) / 2, z);
         rb(g, 1.0, 0.03, go + 0.02, 0.004, tread, 0, top - 0.015, z - 0.01);
       }
+      if (landing) {
+        // mid-flight landing (ชานพัก)
+        const top = half * rise, z = run / 2 - half * go - landing / 2;
+        rb(g, 1.0, top - 0.03, landing, 0.002, base, 0, (top - 0.03) / 2, z);
+        rb(g, 1.0, 0.03, landing, 0.004, tread, 0, top - 0.015, z);
+      }
       // glass balustrade with a steel handrail on the open side
-      const slope = Math.atan2(3.0, 4.0), len = Math.hypot(3.0, 4.0);
-      const glass = noShadow(rb(g, 0.012, 0.9, len, 0.002, MAT.glass(), 0.49, 1.5 + 0.45, 0));
+      const slope = Math.atan2(H, run), len = Math.hypot(H, run);
+      const glass = noShadow(rb(g, 0.012, 0.9, len, 0.002, MAT.glass(), 0.49, H / 2 + 0.45, 0));
       glass.rotation.x = slope;
-      const rail = cy(g, 0.022, 0.022, len, MAT.steel(), 0.49, 1.5 + 0.95, 0, 16);
+      const rail = cy(g, 0.022, 0.022, len, MAT.steel(), 0.49, H / 2 + 0.95, 0, 16);
       rail.rotation.x = Math.PI / 2 + slope;
+    } },
+  /* ---------------- luxury ---------------- */
+  { id: 'glasswall', cats: ['doors'], name: 'ผนังกระจกบานเลื่อนสูงจรดฝ้า', size: '300×290 ซม. · อลูมิเนียม Slim', price: 165000, colors: ['#2b2b2b', '#8a8f96', '#c9a45c'], mount: 'wall', opening: { w: 3.05, y0: 0, y1: 2.95, door: true },
+    build(c, g) {
+      const al = MAT.brushed(c);
+      for (const x of [-1.5, 1.5]) rb(g, 0.04, 2.95, 0.14, 0.004, al, x, 1.475, 0);
+      rb(g, 3.05, 0.04, 0.14, 0.004, al, 0, 2.93, 0);
+      rb(g, 3.05, 0.02, 0.14, 0.004, al, 0, 0.01, 0);
+      for (const [x, z] of [[-0.74, -0.03], [0.74, 0.03]]) {
+        noShadow(rb(g, 1.48, 2.88, 0.012, 0.002, MAT.window(), x, 1.46, z));
+        for (const xx of [x - 0.73, x + 0.73]) rb(g, 0.025, 2.9, 0.03, 0.004, al, xx, 1.46, z);
+      }
+    } },
+  { id: 'chandelier', cats: ['lights', 'living', 'dining'], name: 'โคมระย้าคริสตัล', size: 'ø90 ซม. · 12 ดวง', price: 89000, colors: ['#c9a45c', '#d9d9d9', '#2b2b2b'], mount: 'ceiling', light: { kind: 'point', lm: 4800, at: [0, 2.0, 0] },
+    build(c, g) {
+      const m = MAT.brushed(c);
+      cy(g, 0.008, 0.008, 0.5, m, 0, 2.45, 0, 8);
+      for (const [r, y, n] of [[0.42, 2.0, 12], [0.28, 1.86, 8], [0.14, 1.74, 6]] as const) {
+        const ring = add(g, new THREE.TorusGeometry(r, 0.012, 6, 48), m, 0, y, 0);
+        ring.rotation.x = Math.PI / 2;
+        for (let i = 0; i < n; i++) {
+          const a = (i / n) * Math.PI * 2;
+          noShadow(sphere(g, 0.035, MAT.glow('#fff2d8', 1.6), Math.cos(a) * r, y + 0.05, Math.sin(a) * r, 1));
+          noShadow(add(g, new THREE.OctahedronGeometry(0.03), MAT.glass(), Math.cos(a) * r, y - 0.09, Math.sin(a) * r));
+        }
+      }
+    } },
+  { id: 'kingbed', cats: ['bedroom'], name: 'เตียง 7 ฟุต หัวเตียงบุผ้าสูง', size: '220×220 ซม.', price: 95000, colors: ['#c9bba6', '#5f6b6e', '#3e3a37', '#8a5a45'],
+    build(c, g) {
+      const fr = MAT.fabric(c), wh = MAT.fabric('#f4f2ee'), th = MAT.fabric('#b8a99a');
+      rb(g, 2.2, 0.32, 2.2, 0.04, fr, 0, 0.2, 0); rb(g, 2.1, 0.26, 2.1, 0.06, wh, 0, 0.49, 0); rb(g, 2.16, 0.06, 0.7, 0.03, th, 0, 0.64, 0.6);
+      for (let i = 0; i < 6; i++) rb(g, 0.36, 1.25, 0.14, 0.05, fr, -0.9 + i * 0.36, 0.95, -1.1);
+      for (const x of [-0.5, 0.5]) rb(g, 0.7, 0.18, 0.42, 0.08, wh, x, 0.7, -0.8).rotation.x = -0.25;
+      rb(g, 2.2, 0.45, 0.5, 0.05, fr, 0, 0.23, 1.32);
+    } },
+  { id: 'piano', cats: ['living'], name: 'แกรนด์เปียโน', size: '150×190 ซม.', price: 1250000, colors: ['#111111', '#f4f2ee'],
+    build(c, g) {
+      const m = new THREE.MeshPhysicalMaterial({ color: c, roughness: 0.15, clearcoat: 1, clearcoatRoughness: 0.03 });
+      const s = new THREE.Shape();
+      s.moveTo(-0.75, -0.95); s.lineTo(0.75, -0.95); s.lineTo(0.75, 0.2); s.bezierCurveTo(0.75, 0.9, 0.1, 0.95, -0.2, 0.95); s.bezierCurveTo(-0.6, 0.95, -0.75, 0.6, -0.75, 0.2); s.lineTo(-0.75, -0.95);
+      const body = add(g, new THREE.ExtrudeGeometry(s, { depth: 0.32, bevelEnabled: false }), m, 0, 0.98, 0);
+      body.rotation.x = Math.PI / 2;
+      rb(g, 1.45, 0.05, 0.22, 0.005, MAT.matte('#f7f5f0'), 0, 0.68, -1.02);
+      for (const [x, z] of [[-0.6, -0.8], [0.6, -0.8], [0, 0.75]]) cy(g, 0.05, 0.04, 0.66, m, x, 0.33, z, 12);
+      rb(g, 1.0, 0.5, 0.35, 0.03, m, 0, 0.25, -1.45);
+    } },
+  { id: 'theaterseat', cats: ['living'], name: 'โซฟาโฮมเธียเตอร์ 3 ที่ (ปรับนอน)', size: '270×100 ซม.', price: 145000, colors: ['#2b2b2b', '#5b4130', '#3e4a5a'],
+    build(c, g) {
+      const m = MAT.leather(c);
+      for (const x of [-0.9, 0, 0.9]) {
+        rb(g, 0.78, 0.45, 0.9, 0.08, m, x, 0.23, 0);
+        rb(g, 0.78, 0.6, 0.22, 0.08, m, x, 0.72, -0.36).rotation.x = -0.15;
+      }
+      for (const x of [-1.35, -0.45, 0.45, 1.35]) rb(g, 0.12, 0.62, 0.92, 0.05, m, x, 0.31, 0);
+    } },
+  { id: 'screen', cats: ['living'], name: 'จอโปรเจกเตอร์ 150" + ลำโพง', size: '330×190 ซม.', price: 120000, colors: ['#1d1b19'], mount: 'wall',
+    build(c, g) {
+      rb(g, 3.4, 1.95, 0.04, 0.01, MAT.matte(c), 0, 1.6, 0.03);
+      add(g, new THREE.PlaneGeometry(3.3, 1.86), MAT.screen(), 0, 1.6, 0.052);
+      for (const x of [-2.0, 2.0]) rb(g, 0.3, 1.1, 0.3, 0.02, MAT.matte('#1d1b19'), x, 0.55, 0.2);
+    } },
+  { id: 'winerack', cats: ['dining', 'decor'], name: 'ตู้ไวน์ควบคุมอุณหภูมิ', size: '120×45 ซม. · 160 ขวด', price: 98000, colors: ['#5b4130', '#2b2b2b'],
+    build(c, g) {
+      const m = MAT.wood(c);
+      rb(g, 1.2, 2.2, 0.45, 0.01, m, 0, 1.1, 0);
+      noShadow(rb(g, 1.1, 2.0, 0.01, 0.002, MAT.glass(), 0, 1.15, 0.23));
+      const bottle = new THREE.MeshStandardMaterial({ color: '#2a1215', roughness: 0.2, metalness: 0.1 });
+      for (let r = 0; r < 9; r++) for (let i = 0; i < 6; i++) cy(g, 0.035, 0.035, 0.3, bottle, -0.45 + i * 0.18, 0.3 + r * 0.21, 0.05, 8).rotation.x = Math.PI / 2;
+      noShadow(rb(g, 1.1, 0.02, 0.02, 0.005, MAT.glow('#ffd9a0', 1.2), 0, 2.15, 0.2));
+    } },
+  { id: 'treadmill', cats: ['decor'], name: 'ลู่วิ่งไฟฟ้า', size: '85×190 ซม.', price: 65000, colors: ['#2b2b2b'],
+    build(c, g) {
+      const m = MAT.matte(c);
+      rb(g, 0.8, 0.18, 1.8, 0.03, m, 0, 0.12, 0); rb(g, 0.55, 0.02, 1.5, 0.005, MAT.matte('#111'), 0, 0.22, 0.05);
+      for (const x of [-0.36, 0.36]) rb(g, 0.06, 1.1, 0.06, 0.02, MAT.brushed(), x, 0.7, -0.75);
+      rb(g, 0.8, 0.3, 0.2, 0.03, m, 0, 1.3, -0.78); noShadow(add(g, new THREE.PlaneGeometry(0.3, 0.18), MAT.screen(), 0, 1.32, -0.67));
+    } },
+  { id: 'sauna', cats: ['bath'], name: 'ห้องซาวน่าไม้ (2–3 คน)', size: '180×150 ซม.', price: 260000, colors: ['#c9a27a', '#8a5a3c'],
+    build(c, g) {
+      const m = MAT.wood(c);
+      rb(g, 1.8, 2.1, 0.06, 0.005, m, 0, 1.05, -0.72); for (const x of [-0.87, 0.87]) rb(g, 0.06, 2.1, 1.5, 0.005, m, x, 1.05, 0);
+      rb(g, 1.8, 0.06, 1.5, 0.005, m, 0, 2.1, 0);
+      noShadow(rb(g, 1.2, 2.0, 0.02, 0.002, MAT.glass(), -0.3, 1.0, 0.74)); rb(g, 0.6, 2.1, 0.06, 0.005, m, 0.6, 1.05, 0.74);
+      rb(g, 1.6, 0.05, 0.5, 0.01, m, 0, 0.45, -0.45); rb(g, 1.6, 0.05, 0.45, 0.01, m, 0, 0.9, -0.5);
+      rb(g, 0.4, 0.5, 0.35, 0.03, MAT.brushed('#4a4a4a'), 0.55, 0.25, 0.2);
+    } },
+  { id: 'walkin', cats: ['bedroom'], name: 'ตู้เสื้อผ้า Walk-in + ไอส์แลนด์', size: '300×60 ซม. + 120×60', price: 230000, colors: ['#e9e2d6', '#5b4130', '#2b2b2b'],
+    build(c, g) {
+      const m = MAT.wood(c), glass = MAT.glass();
+      rb(g, 3.0, 2.4, 0.6, 0.01, m, 0, 1.2, -1.2);
+      noShadow(rb(g, 2.9, 2.2, 0.01, 0.002, glass, 0, 1.25, -0.89));
+      for (let i = 0; i < 10; i++) rb(g, 0.08, 0.9, 0.4, 0.02, MAT.fabric(['#5f6b6e', '#c9bba6', '#3e3a37', '#8a5a45'][i % 4]), -1.3 + i * 0.28, 1.6, -1.2);
+      rb(g, 1.2, 0.9, 0.6, 0.02, m, 0, 0.45, 0.2); rb(g, 1.24, 0.03, 0.64, 0.01, MAT.stone('#e9e6e0'), 0, 0.915, 0.2);
+      noShadow(rb(g, 2.9, 0.02, 0.02, 0.005, MAT.glow('#fff3df', 1.2), 0, 2.35, -0.9));
+    } },
+  { id: 'liftcar', cats: ['doors'], name: 'ลิฟต์บ้าน (Home lift)', size: '110×140 ซม. · 4 คน', price: 1450000, colors: ['#c8cbce', '#c9a45c', '#2b2b2b'],
+    build(c, g) {
+      const m = MAT.brushed(c);
+      for (const x of [-0.55, 0.55]) rb(g, 0.04, 2.3, 1.4, 0.01, m, x, 1.15, 0);
+      rb(g, 1.14, 2.3, 0.04, 0.01, m, 0, 1.15, -0.7); rb(g, 1.14, 0.04, 1.4, 0.01, m, 0, 2.3, 0);
+      noShadow(rb(g, 1.0, 0.02, 1.3, 0.005, MAT.glow('#fff4e0', 0.9), 0, 2.27, 0));
+      for (const x of [-0.27, 0.27]) rb(g, 0.53, 2.1, 0.03, 0.005, MAT.brushed(c), x, 1.05, 0.69);
+      rb(g, 0.6, 0.02, 0.03, 0.005, MAT.chrome(), 0, 1.0, -0.66);
     } },
   /* ---------------- lighting ---------------- */
   { id: 'downlight', cats: ['lights'], name: 'ดาวน์ไลท์ฝังฝ้า', size: 'ø12 ซม. · 9W', price: 390, colors: ['#f4f2ee', '#2b2b2b', '#c9a45c'], mount: 'ceiling', light: { kind: 'spot', lm: 750, at: [0, 2.66, 0], angle: 0.6 },

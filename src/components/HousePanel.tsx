@@ -10,6 +10,8 @@ import { ExteriorEditor, HouseDesigner } from './HouseDesigner';
 const SWATCH: Record<RoomType, string> = {
   living: '#c9a27a', bedroom: '#9aa7b0', kitchen: '#b9b8b3', dining: '#d8b4a0', bathroom: '#a6a7a2', office: '#a8b5ab',
   laundry: '#c9c2b8', hall: '#e3dfd9', balcony: '#8a6a4f', garden: '#4f7a35', garage: '#9b9790',
+  pool: '#3fa7c9', terrace: '#a7835f', theater: '#3b3531', gym: '#8d969c', spa: '#c9b49a', wine: '#7a3b2e', closet: '#d8c7b0',
+  library: '#8a6a4f', maid: '#c9c2b8', lift: '#6f7378', void: '#f4f2ee',
 };
 
 function NumberField({ label, value, min, max, onChange }: { label: string; value: number; min: number; max: number; onChange: (v: number) => void }) {

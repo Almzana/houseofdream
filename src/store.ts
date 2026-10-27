@@ -108,6 +108,8 @@ export const useStore = create<State>()(
         const size: Record<RoomType, [number, number]> = {
           living: [4.5, 4], bedroom: [3.5, 3.5], kitchen: [3, 3.5], dining: [3.5, 3.5], bathroom: [2, 2.5], office: [3, 3],
           laundry: [2, 2], hall: [2, 4], balcony: [4, 1.5], garden: [5, 5], garage: [3.5, 5.5],
+          pool: [4, 10], terrace: [6, 4], theater: [5, 6], gym: [4, 5], spa: [4, 4], wine: [3, 4], closet: [3, 3.5],
+          library: [4, 5], maid: [3, 3], lift: [2, 2], void: [5, 5],
         };
         const [w, d] = size[type];
         const x0 = same.length ? maxX : minX;

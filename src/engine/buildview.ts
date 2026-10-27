@@ -16,6 +16,8 @@ const COLORS: Record<Kind, [string, number, number]> = {
   cold: ['#2f80ed', 0.35, 0], hot: ['#e5484d', 0.35, 0], soil: ['#d9822b', 0.45, 0], grey: ['#8a9099', 0.45, 0], vent: ['#a9afb8', 0.45, 0],
   tank: ['#dfe3e8', 0.25, 0.8], pump: ['#2f6fd0', 0.4, 0.3], septic: ['#3f7a55', 0.6, 0], pit: ['#8d8a83', 0.9, 0], wmeter: ['#2f80ed', 0.4, 0.2], grease: ['#5a6b7a', 0.6, 0],
   'wire-light': ['#f2c94c', 0.5, 0], 'wire-power': ['#e74c3c', 0.5, 0], 'wire-ac': ['#2d9cdb', 0.5, 0], 'wire-heavy': ['#f2994a', 0.5, 0], 'wire-main': ['#2b2b2b', 0.5, 0],
+  shaft: ['#b9b3a7', 0.85, 0], liftcar: ['#c9ced4', 0.3, 0.8], pooltank: ['#9fb4b8', 0.85, 0], poolplant: ['#3d7ea6', 0.4, 0.3], poolpipe: ['#5bc0de', 0.4, 0], vrv: ['#d7dadc', 0.4, 0.4], refpipe: ['#c77d3a', 0.35, 0.7],
+  solar: ['#1c2c4a', 0.15, 0.5], inverter: ['#e9eaec', 0.4, 0.2], ev: ['#27ae60', 0.4, 0.2], genset: ['#d9a400', 0.5, 0.4], ats: ['#e3e3e0', 0.5, 0.3], smoke: ['#ffffff', 0.4, 0], firepanel: ['#d63031', 0.45, 0.1], lightning: ['#b87333', 0.3, 0.9], cctv: ['#2d3436', 0.4, 0.3], rack: ['#2d3436', 0.5, 0.4],
   panel: ['#e3e3e0', 0.5, 0.3], emeter: ['#e8e8e5', 0.5, 0.1], switch: ['#fafafa', 0.4, 0], socket: ['#fafafa', 0.4, 0], acin: ['#f7f7f5', 0.35, 0], acout: ['#cfd2d4', 0.45, 0.4], ground: ['#2e9e4f', 0.35, 0.6],
 };
 
@@ -27,6 +29,7 @@ export const LAYERS: { id: Layer; name: string; color: string }[] = [
   { id: 'ceiling', name: 'โครงฝ้า', color: '#b8bec6' },
   { id: 'plumb', name: 'ประปา · สุขาภิบาล', color: '#2f80ed' },
   { id: 'elec', name: 'ไฟฟ้า · แอร์', color: '#f2c94c' },
+  { id: 'systems', name: 'ระบบอาคาร · ลิฟต์ สระ โซลาร์ ความปลอดภัย', color: '#3d7ea6' },
 ];
 
 const tmpM = new THREE.Matrix4();

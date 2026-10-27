@@ -1,10 +1,18 @@
 import { useEffect, useMemo, useState } from 'react';
+import { catalogById } from '../data/catalog';
 import { generateHouse, type GenOptions } from '../data/generate';
 import { EXT_COLORS, EXT_WALLS, ROOF_COLORS, wallById } from '../data/surfaces';
 import { surfaceThumb } from '../engine/textures';
 import { getEngine } from '../photo';
+import { houseBoq } from '../lib/boq';
 import { useStore } from '../store';
-import { DEFAULT_EXT, type RoofStyle } from '../types';
+import { DEFAULT_EXT, TIER_STOREY, applyStorey, type RoofStyle, type Tier } from '../types';
+
+const TIERS: { id: Tier; name: string; desc: string }[] = [
+  { id: 'standard', name: 'มาตรฐาน', desc: 'บ้านเดี่ยวทั่วไป ฝ้า 2.7 ม. เสาเข็มตอก แอร์ติดผนัง' },
+  { id: 'luxury', name: 'Luxury', desc: `2 ชั้น ชั้นสูง ${TIER_STOREY.luxury} ม. · โถงฝ้าสูง 2 ชั้น · ลิฟต์ · ห้องนอนมีห้องน้ำในตัว · สระว่ายน้ำ · เสาเข็มเจาะ พื้น Post-tension · แอร์ VRV · โซลาร์`, },
+  { id: 'ultra', name: 'Ultra Luxury', desc: `3 ชั้น ชั้นสูง ${TIER_STOREY.ultra} ม. · Master suite ทั้งชั้น · โฮมเธียเตอร์ สปา ฟิตเนส ห้องไวน์ ห้องสมุด · เครื่องปั่นไฟสำรอง · Smart home`, },
+];
 
 export const ROOFS: { id: RoofStyle; name: string; path: string }[] = [
   { id: 'hip', name: 'ปั้นหยา', path: 'M4 30 L20 14 H44 L60 30 Z' },
@@ -36,25 +44,38 @@ function Stepper({ label, value, min, max, onChange }: { label: string; value: n
 /** Choose a few things, get a whole furnished house. */
 export function HouseDesigner() {
   const generate = useStore((s) => s.generate);
-  const [o, setO] = useState<GenOptions>({ floors: 2, bedrooms: 3, bathrooms: 2, garage: true, garden: true, roof: 'hip' });
+  const [o, setO] = useState<GenOptions>({ floors: 2, bedrooms: 3, bathrooms: 2, garage: true, garden: true, roof: 'hip', tier: 'standard', pool: true });
   const [armed, setArmed] = useState(false);
   useEffect(() => setArmed(false), [o]);
   const up = (p: Partial<GenOptions>) => setO((x) => ({ ...x, ...p }));
   const sum = useMemo(() => {
     const h = generateHouse(o);
     const indoor = h.rooms.filter((r) => !r.outdoor);
-    return { area: indoor.reduce((a, r) => a + r.w * r.d, 0), rooms: indoor.length, items: h.items.length };
+    const area = indoor.filter((r) => r.type !== 'void').reduce((a, r) => a + r.w * r.d, 0);
+    const cost = houseBoq(h, (t) => catalogById.get(t)).totals.all;
+    applyStorey(useStore.getState().house); // the preview must not change the storey height of the house on screen
+    return { area, rooms: indoor.length, items: h.items.length, cost, floors: new Set(indoor.map((r) => r.level ?? 0)).size };
   }, [o]);
+  const lux = o.tier && o.tier !== 'standard';
+  const tier = TIERS.find((t) => t.id === (o.tier ?? 'standard'))!;
 
   return (
     <div className="designer">
-      <div className="seg wide" role="group" aria-label="จำนวนชั้น">
-        <button aria-pressed={o.floors === 1} onClick={() => up({ floors: 1 })}>บ้านชั้นเดียว</button>
-        <button aria-pressed={o.floors === 2} onClick={() => up({ floors: 2 })}>บ้าน 2 ชั้น</button>
+      <div className="seg wide three" role="group" aria-label="ระดับบ้าน">
+        {TIERS.map((t) => (
+          <button key={t.id} aria-pressed={(o.tier ?? 'standard') === t.id} onClick={() => up({ tier: t.id, bedrooms: t.id === 'standard' ? Math.min(o.bedrooms, 6) : Math.max(o.bedrooms, t.id === 'ultra' ? 5 : 4) })}>{t.name}</button>
+        ))}
       </div>
+      <p className="note tier">{tier.desc}</p>
+      {!lux && (
+        <div className="seg wide" role="group" aria-label="จำนวนชั้น">
+          <button aria-pressed={o.floors === 1} onClick={() => up({ floors: 1 })}>บ้านชั้นเดียว</button>
+          <button aria-pressed={o.floors === 2} onClick={() => up({ floors: 2 })}>บ้าน 2 ชั้น</button>
+        </div>
+      )}
       <div className="steppers">
-        <Stepper label="ห้องนอน" value={o.bedrooms} min={1} max={6} onChange={(bedrooms) => up({ bedrooms })} />
-        <Stepper label="ห้องน้ำ" value={o.bathrooms} min={1} max={5} onChange={(bathrooms) => up({ bathrooms })} />
+        <Stepper label="ห้องนอน" value={o.bedrooms} min={lux ? (o.tier === 'ultra' ? 5 : 4) : 1} max={lux ? 8 : 6} onChange={(bedrooms) => up({ bedrooms })} />
+        {!lux && <Stepper label="ห้องน้ำ" value={o.bathrooms} min={1} max={5} onChange={(bathrooms) => up({ bathrooms })} />}
       </div>
       <div className="roofs" role="group" aria-label="แบบหลังคา">
         {ROOFS.slice(0, 3).map((r) => (
@@ -65,10 +86,20 @@ export function HouseDesigner() {
         ))}
       </div>
       <div className="row">
-        <label className="check"><input type="checkbox" checked={o.garage} onChange={(e) => up({ garage: e.target.checked })} /> โรงจอดรถ</label>
-        <label className="check"><input type="checkbox" checked={o.garden} onChange={(e) => up({ garden: e.target.checked })} /> สวนหน้าบ้าน</label>
+        {lux ? (
+          <label className="check"><input type="checkbox" checked={o.pool !== false} onChange={(e) => up({ pool: e.target.checked })} /> สระว่ายน้ำ</label>
+        ) : (
+          <>
+            <label className="check"><input type="checkbox" checked={o.garage} onChange={(e) => up({ garage: e.target.checked })} /> โรงจอดรถ</label>
+            <label className="check"><input type="checkbox" checked={o.garden} onChange={(e) => up({ garden: e.target.checked })} /> สวนหน้าบ้าน</label>
+          </>
+        )}
       </div>
-      <p className="note">ได้บ้านพื้นที่ใช้สอยประมาณ <b>{sum.area.toFixed(0)} ตร.ม.</b> · {sum.rooms} ห้อง · จัดของให้ {sum.items} ชิ้น พร้อมประตู หน้าต่าง{o.floors === 2 ? ' บันได' : ''}</p>
+      <p className="note">
+        ได้บ้าน {sum.floors} ชั้น พื้นที่ใช้สอยประมาณ <b>{sum.area.toFixed(0)} ตร.ม.</b> · {sum.rooms} ห้อง · จัดของให้ {sum.items} ชิ้น
+        <br />
+        งบก่อสร้างโดยประมาณ <b>฿{(sum.cost / 1e6).toFixed(1)} ล้าน</b> (≈ ฿{Math.round(sum.cost / Math.max(1, sum.area) / 1000)}k/ตร.ม.)
+      </p>
       <button
         className={`btn primary${armed ? ' armed' : ''}`}
         onClick={() => {

@@ -5,7 +5,7 @@
  * (septic tank, grease trap), and the paperwork to file. Figures are the national minimums;
  * local regulations and the town plan can be stricter.
  */
-import { DEFAULT_SITE, LEVEL_H, type House, type Room } from '../types';
+import { DEFAULT_SITE, applyStorey, stairSteps, type House, type Room } from '../types';
 import { WALL_T, inRoom, levelY, levelsOf, lotOf, openingsOf, roofPlan, OVERHANG } from './shell';
 import { isExterior, wallSegments } from './walls';
 
@@ -67,6 +67,7 @@ export function electricalLoad(house: House, lookup: CodeLookup) {
 }
 
 export function checkThaiCode(house: House, lookup: CodeLookup): Check[] {
+  applyStorey(house);
   const out: Check[] = [];
   const rooms = house.rooms;
   const indoor = rooms.filter((r) => !r.outdoor);
@@ -215,11 +216,11 @@ export function checkThaiCode(house: House, lookup: CodeLookup): Check[] {
         continue;
       }
       const sp = lookup(st.t)!.stair!;
-      const risers = 16, rise = LEVEL_H / risers, go = sp.len / risers;
-      const ok = sp.w >= 0.8 && rise <= 0.2 && go >= 0.22 && LEVEL_H <= 3;
+      const { rise, go, flight, landing } = stairSteps();
+      const ok = sp.w >= 0.8 && rise <= 0.2 && go >= 0.22 && flight <= 3;
       out.push({
         group: 'บันได', title: `บันไดขึ้นชั้น ${l + 1}`, status: ok ? 'pass' : 'fail',
-        detail: `กว้าง ${m(sp.w)} · ลูกตั้ง ${(rise * 100).toFixed(1)} ซม. · ลูกนอน ${(go * 100).toFixed(0)} ซม. · สูงช่วงเดียว ${m(LEVEL_H)}`,
+        detail: `กว้าง ${m(sp.w)} · ลูกตั้ง ${(rise * 100).toFixed(1)} ซม. · ลูกนอน ${(go * 100).toFixed(0)} ซม. · ${landing ? `มีชานพักกลาง แต่ละช่วงสูง ${m(flight)}` : `สูงช่วงเดียว ${m(flight)}`}`,
         rule: `${R55}: บันไดอาคารอยู่อาศัยกว้าง ≥ 80 ซม. · ลูกตั้ง ≤ 20 ซม. · ลูกนอน ≥ 22 ซม. · ช่วงหนึ่งสูง ≤ 3 ม. (เกินต้องมีชานพัก) · ระยะดิ่งเหนือขั้น ≥ 1.90 ม.`,
       });
     }
@@ -246,8 +247,47 @@ export function checkThaiCode(house: House, lookup: CodeLookup): Check[] {
   out.push({ group: 'ไฟฟ้า', title: 'สายดินและหลักดิน', status: 'pass', detail: 'หลักดินทองแดง ø5/8" ยาว 2.40 ม. + สายดินเข้าตู้ไฟ (มีในโหมดโครงสร้าง)', rule: 'การไฟฟ้ากำหนดให้บ้านใหม่ต้องมีระบบสายดิน ก่อนติดตั้งมิเตอร์ (มาตรฐาน วสท.)' });
   out.push({ group: 'ไฟฟ้า', title: 'เครื่องตัดไฟรั่ว (RCD/RCBO 30 mA)', status: 'pass', detail: 'ตู้ไฟมีกันดูดที่เมน และ RCBO แยกวงจรเครื่องทำน้ำอุ่น', rule: 'วงจรในที่เปียก (ห้องน้ำ เครื่องทำน้ำอุ่น ภายนอกอาคาร) ต้องมีเครื่องตัดไฟรั่วขนาดไม่เกิน 30 mA' });
 
+  /* ---------- large homes: lift, pool, big-building thresholds ---------- */
+  const total = indoor.filter((r) => r.type !== 'void').reduce((a, r) => a + r.w * r.d, 0);
+  const G = 'บ้านขนาดใหญ่ · ระบบพิเศษ';
+  const lifts = indoor.filter((r) => r.type === 'lift');
+  if (lifts.length) {
+    const small = lifts.filter((r) => Math.min(r.w, r.d) < 1.6);
+    out.push({
+      group: G, title: 'ลิฟต์บ้าน', status: small.length ? 'warn' : 'pass', roomId: small[0]?.id,
+      detail: small.length ? `ปล่องลิฟต์แคบ ${m(Math.min(small[0].w, small[0].d))} — ลิฟต์บ้านทั่วไปต้องการปล่องอย่างน้อย 1.60 × 1.60 ม.` : `ลิฟต์ ${new Set(lifts.map(lv)).size} ชั้น · ปล่องคอนกรีตเสริมเหล็ก + บ่อลิฟต์ลึก 1.40 ม. (ดูในโหมดโครงสร้าง)`,
+      rule: 'มาตรฐานลิฟต์ EN 81-41 / มอก. · ต้องมีระบบ ARD พาลงชั้นใกล้สุดเมื่อไฟดับ โทรศัพท์ฉุกเฉินในตัวลิฟต์ และตรวจสอบโดยวิศวกรเครื่องกลทุกปี',
+    });
+  }
+  const pools = rooms.filter((r) => r.type === 'pool');
+  if (pools.length) {
+    const poolA = pools.reduce((a, r) => a + r.w * r.d, 0);
+    out.push({
+      group: G, title: 'สระว่ายน้ำ', status: 'info', roomId: pools[0].id,
+      detail: `สระ ${m2(poolA)} ลึก 1.50 ม. · ถังคอนกรีตบนเสาเข็มของตัวเอง แยกจากโครงสร้างบ้าน`,
+      rule: 'โครงสร้างสระต้องมีวิศวกรโยธาออกแบบ · ถ้ามีเด็กเล็กควรมีรั้วกั้นสูง ≥ 1.20 ม. ประตูปิดเองได้ · วงจรไฟฟ้าสระต้องมี RCD 30 mA และต่อประสานศักย์ (Equipotential bonding)',
+    });
+  }
+  const threePhase = lifts.length > 0 || house.tier === 'luxury' || house.tier === 'ultra';
+  if (threePhase) out.push({ group: G, title: 'ขอไฟฟ้า 3 เฟส', status: 'info', detail: 'ลิฟต์ แอร์ VRV ปั๊มสระ และเครื่องชาร์จ EV ใช้ไฟรวมสูง — ควรขอมิเตอร์ 3 เฟส 4 สาย (เช่น 30(100)A 3 เฟส)', rule: 'การไฟฟ้า (กฟน./กฟภ.) · ระบบโซลาร์แบบ On-grid ต้องขออนุญาตขนานไฟ และแจ้ง กกพ.' });
+  const big = total >= 2000 || height >= 15;
+  out.push({
+    group: G, title: big ? 'เข้าข่ายอาคารขนาดใหญ่' : 'ยังไม่เข้าข่ายอาคารขนาดใหญ่', status: big ? 'warn' : 'pass',
+    detail: `พื้นที่ใช้สอย ${m2(total)} · สูง ${m(height)}`,
+    rule: 'กฎกระทรวงฉบับที่ 33: อาคารขนาดใหญ่ = พื้นที่รวม ≥ 2,000 ตร.ม. หรือ สูง ≥ 15 ม. และพื้นที่ > 1,000 ตร.ม. → ต้องมีบันไดหนีไฟ ระบบดับเพลิง และที่จอดรถตามเกณฑ์ · สูง ≥ 23 ม. เป็นอาคารสูง',
+  });
+  if (total > 300 || top >= 2) out.push({
+    group: G, title: 'ออกแบบต้านแผ่นดินไหว', status: 'info',
+    detail: top >= 2 ? 'บ้าน 3 ชั้นขึ้นไป — ตรวจโซนแผ่นดินไหวของที่ตั้ง (เช่น กทม. ปริมณฑล ภาคเหนือ ภาคตะวันตก)' : 'ตรวจโซนแผ่นดินไหวของที่ตั้ง',
+    rule: 'กฎกระทรวงการรับน้ำหนัก ความต้านทาน ความคงทนของอาคาร และพื้นดินที่รองรับอาคารในการต้านทานแรงสั่นสะเทือนของแผ่นดินไหว พ.ศ. 2564 · มยผ. 1301/1302',
+  });
+  if (house.tier === 'luxury' || house.tier === 'ultra') out.push({
+    group: G, title: 'เสาเข็มเจาะและพื้น Post-tension', status: 'info',
+    detail: 'เสาเข็มเจาะทุกต้นต้องทดสอบ Seismic test · สุ่มทดสอบ Static/Dynamic load test · พื้น PT ต้องมีแบบดึงลวดและบันทึกแรงดึง',
+    rule: 'มยผ. 1106 (เสาเข็มเจาะ) · มาตรฐาน วสท. สำหรับคอนกรีตอัดแรง · วิศวกรโยธาระดับสามัญขึ้นไปลงนาม',
+  });
+
   /* ---------- paperwork ---------- */
-  const total = indoor.reduce((a, r) => a + r.w * r.d, 0);
   const docs: [string, string][] = [
     ['ตรวจผังเมืองรวม (สีที่ดิน) และข้อบัญญัติท้องถิ่น', 'สำนักงานเขต/เทศบาล/อบต. — บางพื้นที่มีระยะร่น ความสูง และ FAR/OSR เข้มกว่านี้'],
     ['ยื่นขออนุญาตก่อสร้างอาคาร (แบบ ข.1)', 'พร้อมโฉนด/น.ส.3 สำเนา, แบบแปลน 5 ชุด, รายการคำนวณโครงสร้าง; ได้ใบอนุญาต (อ.1) ก่อนลงมือ'],

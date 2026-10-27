@@ -288,6 +288,9 @@ details.room .body { padding: 12px; display: flex; flex-direction: column; gap: 
 .designer { display: flex; flex-direction: column; gap: 12px; border: 1px solid var(--line); padding: 14px; background: linear-gradient(180deg, var(--chip), var(--panel)); }
 .seg.wide { display: grid; grid-template-columns: 1fr 1fr; }
 .seg.wide button { padding: 9px 12px; font-size: 12px; }
+.seg.wide.three { grid-template-columns: 1fr 1fr 1fr; }
+.seg.wide.three button { padding: 9px 6px; }
+.designer .note.tier { margin: -4px 0 0; font-size: 11.5px; line-height: 1.5; }
 .steppers { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .stepper { display: grid; grid-template-columns: minmax(0, 1fr) 32px 28px 32px; align-items: center; border: 1px solid var(--line); background: var(--panel); padding: 4px 4px 4px 10px; font-size: 13px; }
 .stepper button { width: 32px; height: 32px; border: 0; background: var(--chip); font-size: 18px; line-height: 1; padding: 0; }

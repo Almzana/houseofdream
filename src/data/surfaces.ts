@@ -382,3 +382,27 @@ export const PAVING: Surface = {
 export const EXT_WALLS = ['plain', 'brick', 'stone', 'slats'];
 export const EXT_COLORS = ['#ece7df', '#f6f4ef', '#d8d2c8', '#b8afa3', '#8c8378', '#5a514a', '#2f3437', '#c9b49a', '#a9b8b0'];
 export const ROOF_COLORS = ['#5a4a42', '#7a3b2e', '#3d4248', '#6b6f6a', '#2b2b2b', '#8a6a4f', '#4a5a6a'];
+
+/** Ripples for pool water (only the normal map is used). */
+export const WATER: Surface = {
+  id: 'water', name: 'น้ำ', unit: [2.5, 2.5], rough: [0.04, 0.06], ns: 0.9,
+  draw(ctx, W, H) {
+    ctx.fillStyle = '#808080';
+    ctx.fillRect(0, 0, W, H);
+    const r = rng(97);
+    wrapDraw(ctx, W, H, () => {
+      for (let i = 0; i < 70; i++) {
+        const x = r() * W, y = r() * H, rr = 12 + r() * 46;
+        const g = ctx.createRadialGradient(x, y, 0, x, y, rr);
+        const v = r() > 0.5 ? 255 : 0;
+        g.addColorStop(0, `rgba(${v},${v},${v},.18)`);
+        g.addColorStop(1, 'rgba(128,128,128,0)');
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.ellipse(x, y, rr, rr * 0.6, r() * 3, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    });
+  },
+  relief: 'luma',
+};
