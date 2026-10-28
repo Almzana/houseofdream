@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { catalogById } from '../data/catalog';
 import { generateHouse, type GenOptions } from '../data/generate';
 import { EXT_COLORS, EXT_WALLS, ROOF_COLORS, wallById } from '../data/surfaces';
@@ -42,6 +42,15 @@ function Stepper({ label, value, min, max, onChange }: { label: string; value: n
   );
 }
 
+function preview(o: GenOptions) {
+  const h = generateHouse(o);
+  const indoor = h.rooms.filter((r) => !r.outdoor);
+  const area = indoor.filter((r) => r.type !== 'void').reduce((a, r) => a + r.w * r.d, 0);
+  const cost = houseBoq(h, (t) => catalogById.get(t)).totals.all;
+  applyStorey(useStore.getState().house); // the preview must not change the storey height of the house on screen
+  return { area, rooms: indoor.length, items: h.items.length, cost, floors: new Set(indoor.map((r) => r.level ?? 0)).size };
+}
+
 /** Choose a few things, get a whole furnished house. */
 export function HouseDesigner() {
   const generate = useStore((s) => s.generate);
@@ -49,15 +58,14 @@ export function HouseDesigner() {
   const [armed, setArmed] = useState(false);
   useEffect(() => setArmed(false), [o]);
   const up = (p: Partial<GenOptions>) => setO((x) => ({ ...x, ...p }));
-  const sum = useMemo(() => {
-    const h = generateHouse(o);
-    const indoor = h.rooms.filter((r) => !r.outdoor);
-    const area = indoor.filter((r) => r.type !== 'void').reduce((a, r) => a + r.w * r.d, 0);
-    const cost = houseBoq(h, (t) => catalogById.get(t)).totals.all;
-    applyStorey(useStore.getState().house); // the preview must not change the storey height of the house on screen
-    return { area, rooms: indoor.length, items: h.items.length, cost, floors: new Set(indoor.map((r) => r.level ?? 0)).size };
+  // the preview house and its bill take ~100 ms: work them out after the panel has painted
+  const [sum, setSum] = useState<{ area: number; rooms: number; items: number; cost: number; floors: number } | null>(null);
+  useEffect(() => {
+    const t = window.setTimeout(() => setSum(preview(o)), 60);
+    return () => clearTimeout(t);
   }, [o]);
   const lux = o.tier && o.tier !== 'standard';
+
   const tier = TIERS.find((t) => t.id === (o.tier ?? 'standard'))!;
 
   return (
@@ -97,9 +105,9 @@ export function HouseDesigner() {
         )}
       </div>
       <p className="note">
-        ได้บ้าน {sum.floors} ชั้น พื้นที่ใช้สอยประมาณ <b>{sum.area.toFixed(0)} ตร.ม.</b> · {sum.rooms} ห้อง · จัดของให้ {sum.items} ชิ้น
+        {sum ? <>ได้บ้าน {sum.floors} ชั้น พื้นที่ใช้สอยประมาณ <b>{sum.area.toFixed(0)} ตร.ม.</b> · {sum.rooms} ห้อง · จัดของให้ {sum.items} ชิ้น
         <br />
-        งบก่อสร้างโดยประมาณ <b>฿{(sum.cost / 1e6).toFixed(1)} ล้าน</b> (≈ ฿{Math.round(sum.cost / Math.max(1, sum.area) / 1000)}k/ตร.ม.)
+        งบก่อสร้างโดยประมาณ <b>฿{(sum.cost / 1e6).toFixed(1)} ล้าน</b> (≈ ฿{Math.round(sum.cost / Math.max(1, sum.area) / 1000)}k/ตร.ม.)</> : 'กำลังคำนวณ…'}
       </p>
       <button
         className={`btn primary${armed ? ' armed' : ''}`}

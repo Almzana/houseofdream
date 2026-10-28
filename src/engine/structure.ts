@@ -42,6 +42,17 @@ export interface Structure {
   shadows: THREE.Group;
   /** inside-face wall material of each room (for per-room daylight) */
   roomMats: Map<string, THREE.Material>;
+  /** independently rebuilt pieces: one per storey of walls, the slabs/railings, the roof, the plot */
+  pieces: Piece[];
+}
+
+interface Piece {
+  kind: string;
+  key: string;
+  root: THREE.Object3D;
+  shadow: THREE.Mesh | null;
+  walls?: WallView[];
+  extras?: Map<number, THREE.Group>;
 }
 
 /** Layer that only the shadow pass sees. */
@@ -67,9 +78,42 @@ export function shadowProxy(o: THREE.Object3D) {
 const lookup = (t: string) => catalogById.get(t);
 const lv = (r: Room) => r.level ?? 0;
 
-function surfMat(s: Surface, color: string, extra: THREE.MeshStandardMaterialParameters = {}, rx?: number, ry?: number) {
-  return new THREE.MeshStandardMaterial({ ...surfaceSet(s, rx, ry), color, roughness: 1, envMapIntensity: 0.5, ...extra });
+/*
+ * Materials live as long as the page: pieces of the shell are rebuilt independently, and a
+ * rebuilt storey must not dispose a material that a kept roof or plot still draws with (that
+ * would make three.js compile its shader again on the next frame).
+ */
+const mats = new Map<string, THREE.Material>();
+function keep<T extends THREE.Material>(key: string, make: () => T): T {
+  let m = mats.get(key) as T | undefined;
+  if (!m) mats.set(key, (m = make()));
+  return m;
 }
+
+function surfMat(s: Surface, color: string, extra: THREE.MeshStandardMaterialParameters = {}, rx?: number, ry?: number) {
+  return keep(`surf|${s.id}|${color}|${JSON.stringify(extra)}|${rx}|${ry}`, () => new THREE.MeshStandardMaterial({ ...surfaceSet(s, rx, ry), color, roughness: 1, envMapIntensity: 0.5, ...extra }));
+}
+
+let classicShared: ClassicMats | null = null;
+const classicSet = () => (classicShared ??= classicMats());
+
+/** Free a piece's geometry (materials are shared, see above; furniture clones own theirs). */
+function disposePiece(p: Piece) {
+  p.root.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (!m.isMesh) return;
+    if (m.userData.sharedGeo) (Array.isArray(m.material) ? m.material : [m.material]).forEach((x) => x.dispose());
+    else m.geometry.dispose();
+  });
+  p.shadow?.geometry.dispose();
+}
+
+/** Dispose what `next` did not take over from `old` (all of it when next is null). */
+export function releaseStructure(old: Structure, next: Structure | null) {
+  for (const p of old.pieces) if (!next?.pieces.includes(p)) disposePiece(p);
+}
+
+const roomSig = (r: Room) => [r.id, r.type, r.x, r.z, r.w, r.d, r.h, r.level ?? 0, !!r.outdoor, r.wallPat, r.wallColor];
 
 type Part = { geo: THREE.BufferGeometry; mats: THREE.Material | THREE.Material[] };
 
@@ -145,7 +189,19 @@ function beam(p0: THREE.Vector3, p1: THREE.Vector3, r: number, mat: THREE.Materi
   return m;
 }
 
-export function buildStructure(house: House): Structure {
+/**
+ * Build the shell. With `prev`, every piece whose inputs are unchanged is reused, so moving a
+ * window rebuilds one storey of walls instead of the walls, roof, garden and fence of the house.
+ */
+export function buildStructure(house: House, prev?: Structure | null): Structure {
+  const steps = structureSteps(house, prev);
+  let r = steps.next();
+  while (!r.done) r = steps.next();
+  return r.value;
+}
+
+/** The same build, pausing after each piece so a caller can spread it over several frames. */
+export function* structureSteps(house: House, prev?: Structure | null): Generator<void, Structure> {
   const ext: Exterior = { ...DEFAULT_EXT, ...house.ext };
   const group = new THREE.Group();
   const shadows = new THREE.Group();
@@ -157,19 +213,29 @@ export function buildStructure(house: House): Structure {
   const byId = new Map(rooms.map((r) => [r.id, r]));
 
   const extMat = surfMat(wallById(ext.wallPat), ext.wallColor, { envMapIntensity: 0.6 });
-  const reveal = new THREE.MeshStandardMaterial({ color: '#f1eee8', roughness: 0.9, envMapIntensity: 0.5 });
-  const cap = new THREE.MeshStandardMaterial({ color: '#3b3531', roughness: 0.85 });
-  const skirt = new THREE.MeshStandardMaterial({ color: '#f4f2ee', roughness: 0.5 });
+  const reveal = keep('reveal', () => new THREE.MeshStandardMaterial({ color: '#f1eee8', roughness: 0.9, envMapIntensity: 0.5 }));
+  const cap = keep('cap', () => new THREE.MeshStandardMaterial({ color: '#3b3531', roughness: 0.85 }));
+  const skirt = keep('skirt', () => new THREE.MeshStandardMaterial({ color: '#f4f2ee', roughness: 0.5 }));
+  const glassM = keep('glass', () => new THREE.MeshPhysicalMaterial({ color: '#dfeef0', roughness: 0.05, transparent: true, opacity: 0.25, depthWrite: false, side: THREE.DoubleSide }));
+  const steel = keep('steel', () => new THREE.MeshStandardMaterial({ color: '#2f3134', metalness: 0.7, roughness: 0.4 }));
   const classic = ext.style === 'classic';
-  const cm = classic ? classicMats() : null;
-  const roomMats = new Map<string, THREE.Material>();
+  const cm = classic ? classicSet() : null;
+  // one material per room (daylight tints each room on its own), kept while the room's finish is unchanged
   const roomMat = (id: string) => {
-    let m = roomMats.get(id);
-    if (!m) {
-      const r = byId.get(id)!;
-      roomMats.set(id, (m = surfMat(wallById(r.wallPat), r.wallColor)));
-    }
-    return m;
+    const r = byId.get(id)!;
+    return keep(`room|${id}|${r.wallPat}|${r.wallColor}`, () => new THREE.MeshStandardMaterial({ ...surfaceSet(wallById(r.wallPat)), color: r.wallColor, roughness: 1, envMapIntensity: 0.5 }));
+  };
+  const roomMats = new Map(indoor.map((r) => [r.id, roomMat(r.id)]));
+
+  const old = new Map((prev?.pieces ?? []).map((p) => [p.kind, p]));
+  const pieces: Piece[] = [];
+  const take = (kind: string, key: string, make: () => Omit<Piece, 'kind' | 'key'>): Piece => {
+    const o = old.get(kind);
+    const p = o && o.key === key ? o : { kind, key, ...make() };
+    pieces.push(p);
+    group.add(p.root);
+    if (p.shadow) shadows.add(p.shadow);
+    return p;
   };
 
   /* ---------------- walls ---------------- */
@@ -180,6 +246,11 @@ export function buildStructure(house: House): Structure {
   for (const l of levels) {
     const list = segsAt(l);
     segs.set(l, list);
+    const levelKey = JSON.stringify([l, top, LEVEL_H, ext.style, ext.wallPat, ext.wallColor, rooms.filter((r) => lv(r) >= l && lv(r) <= l + 3).map(roomSig), ops.filter((o) => o.level === l)]);
+    const piece = take(`walls${l}`, levelKey, () => {
+    const lg = new THREE.Group();
+    const lsh = new THREE.Group();
+    const lw: WallView[] = [];
     const here = indoor.filter((r) => lv(r) === l);
     const inside = (x: number, z: number) => here.some((r) => inRoom(r, x, z));
     for (const s of list) {
@@ -192,11 +263,9 @@ export function buildStructure(house: House): Structure {
           rg.position.set(s.c, levelY(l), mid);
           rg.rotation.y = Math.PI / 2;
         }
-        const glassM = new THREE.MeshPhysicalMaterial({ color: '#dfeef0', roughness: 0.05, transparent: true, opacity: 0.25, depthWrite: false, side: THREE.DoubleSide });
-        const railM = new THREE.MeshStandardMaterial({ color: '#2f3134', metalness: 0.7, roughness: 0.4 });
         box(len, 1.0, 0.012, glassM, 0, 0.55, 0, rg).userData.noShadow = true;
-        box(len, 0.05, 0.07, railM, 0, 1.08, 0, rg);
-        group.add(rg);
+        box(len, 0.05, 0.07, steel, 0, 1.08, 0, rg);
+        lg.add(rg);
         continue;
       }
       const H = wallH(s, l, top);
@@ -265,7 +334,7 @@ export function buildStructure(house: House): Structure {
       const low = assemble(lowParts);
       low.visible = false;
       g.add(full, low);
-      group.add(g);
+      lg.add(g);
       // the shadow stand-in is always the full-height wall
       const pg = new THREE.Group();
       pg.position.copy(g.position);
@@ -273,25 +342,33 @@ export function buildStructure(house: House): Structure {
       const pm = new THREE.Mesh(full.geometry, reveal);
       pm.castShadow = true;
       pg.add(pm);
-      shadows.add(shadowProxy(pg));
+      lsh.add(shadowProxy(pg));
       const mid = (s.s0 + s.s1) / 2;
       const centre = s.axis === 'x' ? new THREE.Vector3(mid, levelY(l) + H / 2, s.c) : new THREE.Vector3(s.c, levelY(l) + H / 2, mid);
       const out = o === 0 ? null : s.axis === 'x' ? new THREE.Vector3(0, 0, o) : new THREE.Vector3(o, 0, 0);
-      walls.push({ seg, level: l, group: g, full, low, out, centre });
+      lw.push({ seg, level: l, group: g, full, low, out, centre });
     }
+    // the storey's walls shadow through one merged stand-in
+    return { root: lg, shadow: mergeShadowCasters(lsh, SHADOW_LAYER), walls: lw };
+    });
+    walls.push(...piece.walls!);
+    yield;
   }
 
   /* ---------------- slabs, carports, railings ---------------- */
+  const extrasPiece = take('extras', JSON.stringify([rooms.map(roomSig), LEVEL_H, ext.style, top]), () => {
+  const eg = new THREE.Group();
+  const esh = new THREE.Group();
   const extras = new Map<number, THREE.Group>();
   const extra = (l: number) => {
     let g = extras.get(l);
     if (!g) {
       extras.set(l, (g = new THREE.Group()));
-      group.add(g);
+      eg.add(g);
     }
     return g;
   };
-  const concrete = new THREE.MeshStandardMaterial({ color: '#d6d1c8', roughness: 0.9 });
+  const concrete = keep('concrete', () => new THREE.MeshStandardMaterial({ color: '#d6d1c8', roughness: 0.9 }));
   for (const r of indoor) {
     const l = lv(r);
     if (l >= top || r.h > LEVEL_H + 0.5) continue;
@@ -302,7 +379,6 @@ export function buildStructure(house: House): Structure {
     const s = box(r.w + 2 * WALL_T, 0.3, r.d + 2 * WALL_T, concrete, r.x, levelY(l) + LEVEL_H - 0.15, r.z, extra(l));
     s.castShadow = s.receiveShadow = true;
   }
-  const steel = new THREE.MeshStandardMaterial({ color: '#2f3134', metalness: 0.7, roughness: 0.4 });
   for (const r of rooms) {
     const l = lv(r);
     // a classical forecourt stays open to the sky (it has the fountain); garages elsewhere get a carport
@@ -355,7 +431,6 @@ export function buildStructure(house: House): Structure {
     if (r.type === 'balcony') {
       const g = extra(l);
       const y = levelY(l);
-      const glass = new THREE.MeshPhysicalMaterial({ color: '#dfeef0', roughness: 0.05, transparent: true, opacity: 0.25, depthWrite: false, side: THREE.DoubleSide });
       const near = (x: number, z: number) => indoor.some((u) => lv(u) === l && inRoom(u, x, z));
       const edges: [number, number, number, number, number][] = [
         [r.x, r.z - r.d / 2, r.w, 0, -1], [r.x, r.z + r.d / 2, r.w, 0, 1], [r.x - r.w / 2, r.z, r.d, Math.PI / 2, -1], [r.x + r.w / 2, r.z, r.d, Math.PI / 2, 1],
@@ -366,7 +441,7 @@ export function buildStructure(house: House): Structure {
         const rg = new THREE.Group();
         rg.position.set(x - ox / 3, y, z - oz / 3);
         rg.rotation.y = rot;
-        box(len, 0.95, 0.012, glass, 0, 0.5, 0, rg).userData.noShadow = true;
+        box(len, 0.95, 0.012, glassM, 0, 0.5, 0, rg).userData.noShadow = true;
         box(len, 0.05, 0.07, steel, 0, 1.0, 0, rg);
         g.add(rg);
       }
@@ -374,29 +449,35 @@ export function buildStructure(house: House): Structure {
   }
   for (const g of extras.values()) {
     shadowed(g);
-    shadows.add(shadowProxy(g));
+    esh.add(shadowProxy(g));
   }
+  return { root: eg, shadow: mergeShadowCasters(esh, SHADOW_LAYER), extras };
+  });
+  const extras = extrasPiece.extras!;
+  yield;
 
   /* ---------------- roof ---------------- */
-  const roof = new THREE.Group();
   const plan = roofPlan(house);
-  if (plan && ext.roof !== 'none') buildRoof(roof, plan, ext, extMat, cm);
-  shadowed(roof);
-  group.add(roof);
-  shadows.add(shadowProxy(roof));
+  const roof = take('roof', JSON.stringify([plan, ext, LEVEL_H]), () => {
+    const g = new THREE.Group();
+    if (plan && ext.roof !== 'none') buildRoof(g, plan, ext, extMat, cm);
+    shadowed(g);
+    const shadow = mergeShadowCasters(new THREE.Group().add(shadowProxy(g)), SHADOW_LAYER);
+    mergeStatic(g);
+    return { root: g, shadow };
+  }).root as THREE.Group;
+  yield;
 
   /* ---------------- site ---------------- */
-  const site = buildSite(house, ext, extMat, cm);
-  mergeStatic(site);
-  mergeStatic(roof);
-  group.add(site);
+  const doors = house.items.filter((i) => i.t === 'frontdoor').map((i) => [i.x, i.z, i.l ?? 0]);
+  const site = take('site', JSON.stringify([rooms.map(roomSig), doors, house.site ?? null, ext, LEVEL_H]), () => {
+    const g = buildSite(house, ext, extMat, cm);
+    mergeStatic(g);
+    return { root: g, shadow: null };
+  }).root as THREE.Group;
 
-  // every shadow stand-in becomes one mesh: the whole building shadows in a single draw call
-  const casters = mergeShadowCasters(shadows, SHADOW_LAYER);
-  shadows.clear();
-  if (casters) shadows.add(casters);
   group.add(shadows);
-  return { group, walls, roof, site, extras, segs, top, shadows, roomMats };
+  return { group, walls, roof, site, extras, segs, top, shadows, roomMats, pieces };
 }
 
 type Plan = NonNullable<ReturnType<typeof roofPlan>>;
@@ -410,17 +491,17 @@ function buildRoof(g: THREE.Group, plan: Plan, ext: Exterior, extMat: THREE.Mate
 
   if (ext.roof === 'mansard') {
     const slate = surfMat(ROOF_TILE, ext.roofColor, { envMapIntensity: 0.8, roughness: 0.75 }, 2, 2);
-    mansard(g, cm ?? classicMats(), W, D, MANSARD_H, slate, extMat);
+    mansard(g, cm ?? classicSet(), W, D, MANSARD_H, slate, extMat);
     return;
   }
   if (ext.roof === 'flat' && cm) {
-    balustradedDeck(g, cm, W, D, new THREE.MeshStandardMaterial({ color: '#cfcac2', roughness: 0.95 }), extMat);
+    balustradedDeck(g, cm, W, D, keep('deck', () => new THREE.MeshStandardMaterial({ color: '#cfcac2', roughness: 0.95 })), extMat);
     return;
   }
 
   if (ext.roof === 'flat') {
     const o = 0.3;
-    const deck = new THREE.MeshStandardMaterial({ color: '#cfcac2', roughness: 0.95 });
+    const deck = keep('deck', () => new THREE.MeshStandardMaterial({ color: '#cfcac2', roughness: 0.95 }));
     box(W + 2 * o, 0.25, D + 2 * o, [extMat, extMat, deck, deck, extMat, extMat], 0, 0.125, 0, g);
     const ph = 0.6, t = 0.15;
     for (const s of [-1, 1]) {

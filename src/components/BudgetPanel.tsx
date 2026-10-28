@@ -1,7 +1,9 @@
 import { useMemo } from 'react';
 import { catalogById } from '../data/catalog';
-import { baht, houseBoq, type Line } from '../lib/boq';
+import { baht, houseBoq, type Boq, type Line } from '../lib/boq';
 import { useStore } from '../store';
+import type { House } from '../types';
+import { useSettledHouse } from './useSettled';
 
 const Lines = ({ lines }: { lines: Line[] }) => (
   <div className="boq">
@@ -14,9 +16,16 @@ const Lines = ({ lines }: { lines: Line[] }) => (
   </div>
 );
 
+// the header total and the budget tab read the same bill: work it out once per house
+const bills = new WeakMap<House, Boq>();
+
 export function useBoq() {
-  const house = useStore((s) => s.house);
-  return useMemo(() => houseBoq(house, (t) => catalogById.get(t)), [house]);
+  const house = useSettledHouse();
+  return useMemo(() => {
+    let b = bills.get(house);
+    if (!b) bills.set(house, (b = houseBoq(house, (t) => catalogById.get(t))));
+    return b;
+  }, [house]);
 }
 
 export function BudgetPanel() {

@@ -99,8 +99,81 @@ export function onSurfacePainted(cb: () => void) {
   };
 }
 
-function fill(s: Surface, m: SurfaceMaps) {
+/* ---- painted maps are kept in IndexedDB, so later visits decode images instead of painting ---- */
+type Stored = { sig: string; map: Blob; normal: Blob; rough: Blob };
+type Maps = { map: HTMLCanvasElement; normal: HTMLCanvasElement; rough: HTMLCanvasElement };
+let dbp: Promise<IDBDatabase | null> | null = null;
+function db() {
+  return (dbp ??= new Promise((res) => {
+    try {
+      const q = indexedDB.open('baan3d-textures', 1);
+      q.onupgradeneeded = () => q.result.createObjectStore('maps');
+      q.onsuccess = () => res(q.result);
+      q.onerror = q.onblocked = () => res(null);
+    } catch {
+      res(null);
+    }
+  }));
+}
+async function stored(id: string): Promise<Stored | undefined> {
+  const d = await db();
+  if (!d) return undefined;
+  return new Promise((res) => {
+    try {
+      const q = d.transaction('maps').objectStore('maps').get(id);
+      q.onsuccess = () => res(q.result as Stored | undefined);
+      q.onerror = () => res(undefined);
+    } catch {
+      res(undefined);
+    }
+  });
+}
+function store(id: string, v: Stored) {
+  db().then((d) => {
+    try {
+      d?.transaction('maps', 'readwrite').objectStore('maps').put(v, id);
+    } catch {
+      /* storage full or blocked: paint again next time */
+    }
+  });
+}
+const blob = (c: HTMLCanvasElement, type: string, q?: number) => new Promise<Blob | null>((res) => c.toBlob(res, type, q));
+async function decode(b: Blob) {
+  const bmp = await createImageBitmap(b);
+  const c = mkCanvas(bmp.width, bmp.height);
+  ctx2d(c, false).drawImage(bmp, 0, 0);
+  bmp.close();
+  return c;
+}
+/** Changes whenever a surface's painter changes, so a new version repaints instead of using old images. */
+function signature(s: Surface) {
+  const src = `${s.draw}|${s.relief}|${s.ns}|${s.rough}`;
+  let h = 0;
+  for (let i = 0; i < src.length; i++) h = (Math.imul(h, 31) + src.charCodeAt(i)) | 0;
+  return `${h}|${src.length}`;
+}
+
+async function mapsFor(s: Surface): Promise<Maps> {
+  const sig = signature(s);
+  const hit = await stored(s.id);
+  if (hit && hit.sig === sig) {
+    try {
+      const [map, normal, rough] = await Promise.all([decode(hit.map), decode(hit.normal), decode(hit.rough)]);
+      if (!painted.has(s.id)) painted.set(s.id, map);
+      return { map, normal, rough };
+    } catch {
+      /* unreadable entry: paint it */
+    }
+  }
   const p = paintMaps(s);
+  // colour as WebP, normals and roughness lossless so the lighting is unchanged
+  Promise.all([blob(p.map, 'image/webp', 0.92), blob(p.normal, 'image/png'), blob(p.rough, 'image/png')]).then(([map, normal, rough]) => {
+    if (map && normal && rough) store(s.id, { sig, map, normal, rough });
+  });
+  return p;
+}
+
+function fill(s: Surface, m: SurfaceMaps, p: Maps) {
   m.map.image = p.map;
   m.normal.image = p.normal;
   m.rough.image = p.rough;
@@ -114,11 +187,13 @@ function pump() {
   const idle: (cb: () => void) => void = (window as unknown as { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => void }).requestIdleCallback
     ? (cb) => (window as unknown as { requestIdleCallback: (cb: () => void, o: { timeout: number }) => void }).requestIdleCallback(cb, { timeout: 120 })
     : (cb) => setTimeout(cb, 16);
-  const step = () => {
+  const step = async () => {
     const s = pending.shift();
     if (s) {
       const m = mapsCache.get(s.id);
-      if (m) fill(s, m);
+      const p = await mapsFor(s);
+      // a custom upload may have replaced the surface meanwhile
+      if (m && mapsCache.get(s.id) === m) fill(s, m, p);
       painters.forEach((cb) => cb());
     }
     if (pending.length) idle(step);

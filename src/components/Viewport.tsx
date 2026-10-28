@@ -78,10 +78,15 @@ export function Viewport() {
     e.onReady = () => setReady(true);
     // let the page paint first, then build the house (the heavy part) and compile its shaders
     let booted = false;
-    const boot = window.setTimeout(() => {
+    let alive = true;
+    const boot = window.setTimeout(async () => {
+      const first = useStore.getState().house;
+      await e.loadHouse(first, () => alive);
+      if (!alive) return;
       booted = true;
       const now = useStore.getState();
-      e.setHouse(now.house);
+      // edits made while it was loading
+      if (now.house !== first) e.setHouse(now.house);
       e.setViewMode(now.viewMode);
       e.setSelection(now.selItem, now.selRoom);
       e.showSetbacks(now.tab === 'code');
@@ -103,6 +108,7 @@ export function Viewport() {
       }
     });
     return () => {
+      alive = false;
       clearTimeout(boot);
       unsub();
       e.dispose();

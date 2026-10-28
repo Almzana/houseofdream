@@ -14,10 +14,10 @@ import { LEVEL_H, applyStorey, type House, type Item, type Quality, type Room, t
 import { inRoom, levelY } from '../lib/shell';
 import { setbackLines } from '../lib/thaicode';
 import { kelvinRGB } from '../lib/kelvin';
-import { buildModel, disposeModel } from './models';
+import { buildModel, disposeModel, prepareModel } from './models';
 import { onSurfacePainted, setAnisotropy, surfaceSet } from './textures';
 import { ctx2d, mkCanvas } from './canvas';
-import { buildStructure, shadowProxy, type Structure, type WallView } from './structure';
+import { buildStructure, releaseStructure, structureSteps, shadowProxy, type Structure, type WallView } from './structure';
 import { Walker } from './walk';
 import { BuildView, type BuildPick } from './buildview';
 import { construct, type Layer } from '../lib/construction';
@@ -239,7 +239,7 @@ export class Engine {
     this.controls.dispose();
     this.rooms.forEach((v) => disposeModel(v.group));
     this.items.forEach((v) => disposeModel(v.group));
-    if (this.structure) disposeModel(this.structure.group);
+    if (this.structure) releaseStructure(this.structure, null);
     this.renderer.dispose();
     this.renderer.domElement.remove();
   }
@@ -583,16 +583,10 @@ export class Engine {
   private warmUp() {
     if (this.ready || this.warming) return;
     this.warming = true;
-    const r = this.renderer;
-    const jobs = [r.compileAsync(this.scene, this.camera)];
-    if (this.fx) {
-      const prev = r.getRenderTarget();
-      r.setRenderTarget(this.composer.readBuffer);
-      jobs.push(r.compileAsync(this.scene, this.camera));
-      r.setRenderTarget(prev);
-    }
+    const jobs = [this.compileUsed()];
     Promise.all(jobs)
       .catch(() => {})
+      .then(() => this.warmDraw())
       .finally(() => {
         this.ready = true;
         this.markShadows();
@@ -600,6 +594,75 @@ export class Engine {
         // then the other side of dusk, in the background
         this.schedulePrewarm();
       });
+  }
+
+  /**
+   * The first real frame uploads every mesh and texture and lets the driver finish each shader:
+   * over half a second in one go. Do it behind the loading overlay a few pieces at a time,
+   * drawing into a 1×1 target, with frustum culling off so off-screen pieces are uploaded too.
+   */
+  /** while set, the render loop leaves the screen as it is (pieces of the scene are hidden) */
+  private warmingDraw = false;
+
+  /** Returns false if stop() cut it short (the scene is put back either way). */
+  private async warmDraw(stop: () => boolean = () => false): Promise<boolean> {
+    const r = this.renderer;
+    this.warmingDraw = true;
+    const roots = [...(this.structure?.group.children ?? []), ...[...this.rooms.values()].map((v) => v.group), ...this.itemsGroup.children];
+    const shown = new Map(roots.map((o) => [o, o.visible]));
+    const culled: THREE.Object3D[] = [];
+    this.scene.traverse((o) => {
+      if ((o as THREE.Mesh).isMesh && o.frustumCulled) {
+        o.frustumCulled = false;
+        culled.push(o);
+      }
+    });
+    roots.forEach((o) => (o.visible = false));
+    const prev = r.getRenderTarget();
+    // draw where real frames go, so the same shader variants get finished
+    const draw = () => {
+      if (this.fx) {
+        r.setRenderTarget(this.probeRT);
+        r.render(this.scene, this.camera);
+        return;
+      }
+      r.setRenderTarget(null);
+      r.setScissorTest(true);
+      r.setScissor(0, 0, 1, 1);
+      r.render(this.scene, this.camera);
+      r.setScissorTest(false);
+    };
+    let i = 0;
+    while (i < roots.length && !this.pt && !stop()) {
+      const t = performance.now();
+      // a batch worth roughly 25 ms of uploading, then let the page breathe
+      while (i < roots.length && performance.now() - t < 25) {
+        const batch = roots.slice(i, i + 12);
+        i += batch.length;
+        batch.forEach((o) => (o.visible = shown.get(o)!));
+        draw();
+        batch.forEach((o) => (o.visible = false));
+      }
+      r.setRenderTarget(prev);
+      await new Promise((res) => setTimeout(res, 0));
+    }
+    roots.forEach((o) => (o.visible = shown.get(o)!));
+    culled.forEach((o) => (o.frustumCulled = true));
+    r.setRenderTarget(prev);
+    this.warmingDraw = false;
+    const done = i >= roots.length;
+    if (done && r.shadowMap.enabled) this.updateShadows();
+    return done;
+  }
+
+  /** Compile the scene's shaders for the target frames are actually drawn into. */
+  private compileUsed(): Promise<unknown> {
+    const r = this.renderer;
+    const prev = r.getRenderTarget();
+    if (this.fx) r.setRenderTarget(this.composer.readBuffer);
+    const p = r.compileAsync(this.scene, this.camera);
+    r.setRenderTarget(prev);
+    return p.catch(() => {});
   }
 
   private prewarmTimer = 0;
@@ -626,39 +689,21 @@ export class Engine {
       this.poolGroup.visible = !was;
       // compileAsync compiles synchronously before returning, so the toggles can be undone at once;
       // the wait for the driver happens in the background
-      const r = this.renderer;
-      const p = r.compileAsync(this.scene, this.camera);
-      // …and the variant used when drawing into the post-processing buffer (no tone mapping in the material)
-      const prevRT = r.getRenderTarget();
-      r.setRenderTarget(this.composer.readBuffer);
-      const p2 = r.compileAsync(this.scene, this.camera);
-      r.setRenderTarget(prevRT);
-      p2.catch(() => {});
-      // the lamp shadow-map shaders only get built by an actual shadow pass
-      if (this.renderer.shadowMap.enabled) this.updateShadows();
+      const p = this.compileUsed();
       for (const o of hidden) o.visible = false;
       this.poolGroup.visible = was;
-      this.markShadows();
-      // Direct3D drivers finish a shader on its first real draw: once compiled, draw the other
-      // lighting state once off-screen (1×1) and on screen behind a 1-pixel scissor
-      Promise.all([p, p2])
-        .then(() => {
-          if (this.pt) return;
-          const keep = this.poolGroup.visible;
-          this.poolGroup.visible = !keep;
-          const rt = r.getRenderTarget();
-          r.setRenderTarget(this.probeRT);
-          r.render(this.scene, this.camera);
-          r.setRenderTarget(null);
-          r.setScissorTest(true);
-          r.setScissor(0, 0, 1, 1);
-          r.render(this.scene, this.camera);
-          r.setScissorTest(false);
-          r.setRenderTarget(rt);
-          this.poolGroup.visible = keep;
-          this.invalidate();
-        })
-        .catch(() => {});
+      // Direct3D drivers finish a shader on its first real draw: draw the other lighting state
+      // a few pieces at a time (the lamp shadow-map shaders get built by the shadow pass at the
+      // end); if the view starts moving, stop and try again later
+      p.then(async () => {
+        if (this.pt) return;
+        const keep = this.poolGroup.visible;
+        this.poolGroup.visible = !keep;
+        const done = await this.warmDraw(() => this.dirty || !!this.walker);
+        this.poolGroup.visible = keep;
+        this.markShadows();
+        if (!done) this.schedulePrewarm();
+      });
     }, 1200);
   }
 
@@ -880,6 +925,38 @@ export class Engine {
   }
 
   /* ------------------------------------------------------------------ sync */
+  private prebuilt: { house: House; structure: Structure } | null = null;
+
+  /**
+   * First load of a house: build its furniture models and shell pieces a slice at a time (the
+   * page keeps painting and the loading spinner keeps turning), then show it.
+   */
+  async loadHouse(h: House, alive: () => boolean = () => true) {
+    applyStorey(h);
+    let t = performance.now();
+    const breathe = async () => {
+      if (performance.now() - t < 12) return;
+      await new Promise((r) => setTimeout(r, 0));
+      t = performance.now();
+    };
+    for (const it of h.items) {
+      if (!alive()) return;
+      applyStorey(h);
+      if (prepareModel(it.t, it.c)) await breathe();
+    }
+    const steps = structureSteps(h, this.structure);
+    let r = steps.next();
+    while (!r.done) {
+      await breathe();
+      if (!alive()) return;
+      applyStorey(h);
+      r = steps.next();
+    }
+    if (!alive()) return;
+    this.prebuilt = { house: h, structure: r.value };
+    this.setHouse(h);
+  }
+
   setHouse(h: House) {
     applyStorey(h);
     if (this.pt && h !== this.house) this.stopRealistic(true);
@@ -941,11 +1018,14 @@ export class Engine {
     ]);
     if (sk !== this.structKey) {
       this.structKey = sk;
-      if (this.structure) {
-        this.scene.remove(this.structure.group);
-        disposeModel(this.structure.group);
+      // unchanged storeys, roof and plot carry over from the previous build
+      const prev = this.structure;
+      this.structure = this.prebuilt?.house === h ? this.prebuilt.structure : buildStructure(h, prev);
+      this.prebuilt = null;
+      if (prev) {
+        this.scene.remove(prev.group);
+        releaseStructure(prev, this.structure);
       }
-      this.structure = buildStructure(h);
       this.scene.add(this.structure.group);
       this.walker?.setWorld(h, this.structure.segs);
       if (this.roofLift > 0) this.structure.roof.visible = false;
@@ -1829,6 +1909,11 @@ export class Engine {
       if (this.structure) this.warmUp();
       return;
     }
+    if (this.warmingDraw) {
+      // still let the camera follow input, so a move can cut the warm-up short
+      if (!this.walker && !this.photo && this.controls.update()) this.dirty = true;
+      return;
+    }
     const now = performance.now();
     const gap = now - this.last;
     const dt = Math.min(0.05, gap / 1000);
@@ -1957,8 +2042,11 @@ export class Engine {
     r.setScissorTest(false);
     r.clear();
     if (this.shadowDirty && r.shadowMap.enabled) this.updateShadows();
-    // while moving draw straight to screen; ambient occlusion + bloom go on the settled frame
-    if (this.fx && !this.photo && full) {
+    // ambient occlusion + bloom go on the settled frame. Moving frames take the same route with
+    // those passes off (only the tone-mapping pass), so every material needs one shader variant
+    // — the off-screen one — instead of a second for drawing straight to the screen
+    if (this.fx && !this.photo) {
+      this.ao.enabled = this.bloom.enabled = full;
       // a soft halo round bright lamps, not a haze over the room
       this.bloom.strength = 0.08 + 0.1 * this.nightness;
       this.composer.render();

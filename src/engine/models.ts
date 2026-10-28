@@ -30,13 +30,24 @@ function make(t: string, color: string): THREE.Group {
   return g;
 }
 
-/** Build a furniture model; meshes cast/receive shadows unless flagged. */
-export function buildModel(t: string, color: string): THREE.Group {
+function proto(t: string, color: string) {
   // stairs are built for the current storey height
   const key = `${t}|${color}${catalogById.get(t)?.stair ? `|${LEVEL_H}` : ''}`;
   let p = protos.get(key);
   if (!p) protos.set(key, (p = make(t, color)));
-  const g = p.clone(true);
+  return p;
+}
+
+/** Build an item type's shared model ahead of time; true if it had to be built. */
+export function prepareModel(t: string, color: string) {
+  const n = protos.size;
+  proto(t, color);
+  return protos.size > n;
+}
+
+/** Build a furniture model; meshes cast/receive shadows unless flagged. */
+export function buildModel(t: string, color: string): THREE.Group {
+  const g = proto(t, color).clone(true);
   const own = new Map<THREE.Material, THREE.Material>();
   const mine = (m: THREE.Material) => own.get(m) ?? own.set(m, m.clone()).get(m)!;
   g.traverse((o) => {

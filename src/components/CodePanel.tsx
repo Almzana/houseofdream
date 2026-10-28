@@ -4,6 +4,7 @@ import { lotOf } from '../lib/shell';
 import { checkThaiCode, electricalLoad, type Status } from '../lib/thaicode';
 import { getEngine } from '../photo';
 import { useStore } from '../store';
+import { useSettledHouse } from './useSettled';
 import { DEFAULT_SITE, type Site } from '../types';
 
 const ICON: Record<Status, string> = { pass: '✓', fail: '✕', warn: '!', info: 'i' };
@@ -39,8 +40,9 @@ export function CodePanel() {
   const selectRoom = useStore((s) => s.selectRoom);
   const set = useStore((s) => s.set);
   const site: Site = { ...DEFAULT_SITE, ...house.site };
-  const checks = useMemo(() => checkThaiCode(house, lookup), [house]);
-  const load = useMemo(() => electricalLoad(house, lookup), [house]);
+  const settled = useSettledHouse();
+  const checks = useMemo(() => checkThaiCode(settled, lookup), [settled]);
+  const load = useMemo(() => electricalLoad(settled, lookup), [settled]);
   const lot = lotOf(house);
   const lotW = lot.x1 - lot.x0, lotD = lot.z1 - lot.z0;
   const n = (s: Status) => checks.filter((c) => c.status === s).length;
