@@ -16,6 +16,7 @@ import { setbackLines } from '../lib/thaicode';
 import { kelvinRGB } from '../lib/kelvin';
 import { buildModel, disposeModel, prepareModel } from './models';
 import { Instancer } from './instancer';
+import { BVHWorker } from './bvhWorker';
 import { onSurfacePainted, setAnisotropy, surfaceSet } from './textures';
 import { ctx2d, mkCanvas } from './canvas';
 import { buildStructure, releaseStructure, structureSteps, shadowProxy, type Structure, type WallView } from './structure';
@@ -247,6 +248,7 @@ export class Engine {
     this.offPainted();
     this.stopRealistic();
     this.fast.dispose();
+    this.bvhWorker?.dispose();
     this.ro.disconnect();
     this.host.removeEventListener('pointerdown', this.onDown, true);
     window.removeEventListener('keydown', this.onKey);
@@ -773,6 +775,9 @@ export class Engine {
 
   /* ------------------------------------------------- path-traced render */
   private pt: WebGLPathTracer | null = null;
+  /** the path tracer has its scene and BVH (until then the normal view keeps drawing) */
+  private ptReady = false;
+  private bvhWorker: BVHWorker | null = null;
   private ptSaved: { env: THREE.Texture | null; bg: THREE.Scene['background']; envI: number; fog: THREE.Scene['fog']; grad: GradientEquirectTexture } | null = null;
   private ptFrame = 0;
   private ptSplit: { orig: THREE.Mesh; parts: THREE.Mesh[] }[] = [];
@@ -864,13 +869,30 @@ export class Engine {
     pt.minSamples = 1;
     pt.fadeDuration = 300;
     pt.dynamicLowRes = true;
+    // the picture shown until the first samples arrive: drawn the way normal frames are, so it
+    // reuses their compiled shaders (drawing straight to the screen would compile a second set)
     pt.rasterizeSceneCallback = (s, c) => {
-      r.clear();
-      r.render(s, c);
+      if (this.fx) this.fast.render();
+      else {
+        r.clear();
+        r.render(s, c);
+      }
     };
     this.pt = pt;
+    this.ptReady = false;
     this.applyLights();
-    pt.setScene(this.scene, this.camera);
+    // the BVH for the whole house takes seconds to build: do it in a worker so the page keeps
+    // responding (the normal view keeps drawing meanwhile); build it here only if that fails
+    this.bvhWorker ??= new BVHWorker();
+    pt.setBVHWorker(this.bvhWorker);
+    try {
+      await pt.setSceneAsync(this.scene, this.camera);
+    } catch {
+      if (this.pt === pt) pt.setScene(this.scene, this.camera);
+    }
+    // stopped while it was being prepared
+    if (this.pt !== pt) return;
+    this.ptReady = true;
     this.ptFrame = 0;
     this.onRender?.(0, this.ptTarget);
   }
@@ -879,6 +901,12 @@ export class Engine {
     const pt = this.pt;
     if (!pt) return;
     this.pt = null;
+    if (!this.ptReady) {
+      // a build still running in the worker is abandoned with it
+      this.bvhWorker?.dispose();
+      this.bvhWorker = null;
+    }
+    this.ptReady = false;
     // the bundled dispose() refers to a field that doesn't exist; free the parts directly
     const a = pt as unknown as Record<string, { dispose?: () => void; material?: Record<string, { dispose?: () => void }> & { dispose?: () => void } } | undefined>;
     for (const k of ['_pathTracer', '_lowResPathTracer']) {
@@ -1994,7 +2022,7 @@ export class Engine {
       if (this.dirty) this.walker.apply(this.camera);
     } else if (!this.photo && this.controls.update()) this.dirty = true;
     if (this.adaptExposure(dt)) this.dirty = true;
-    if (this.pt) {
+    if (this.pt && this.ptReady) {
       // path tracing: keep adding samples; any camera move starts the picture over
       if (this.dirty) this.pt.updateCamera();
       this.dirty = false;
