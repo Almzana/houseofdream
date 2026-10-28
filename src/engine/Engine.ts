@@ -15,6 +15,7 @@ import { inRoom, levelY } from '../lib/shell';
 import { setbackLines } from '../lib/thaicode';
 import { kelvinRGB } from '../lib/kelvin';
 import { buildModel, disposeModel, prepareModel } from './models';
+import { Instancer } from './instancer';
 import { onSurfacePainted, setAnisotropy, surfaceSet } from './textures';
 import { ctx2d, mkCanvas } from './canvas';
 import { buildStructure, releaseStructure, structureSteps, shadowProxy, type Structure, type WallView } from './structure';
@@ -44,6 +45,9 @@ interface RoomView {
   /** shadow-only copy of an upper floor's slab (kept casting while that storey is hidden) */
   proxy?: THREE.Object3D;
 }
+/** Moving frames are drawn at this share of the resolution; the settled frame is full size. */
+const MOVING_SCALE = 0.7;
+
 interface ItemView {
   key: string;
   item: Item;
@@ -54,6 +58,10 @@ interface ItemView {
   glow?: THREE.MeshStandardMaterial[];
   /** stands inside the house (not in the garden, carport or on a balcony) */
   indoor?: boolean;
+  /** daylight factor of the room it stands in */
+  tint?: number;
+  /** size, for skipping items too small to see from where the camera is */
+  radius?: number;
 }
 /** A light source as data; the light pool turns the most relevant ones into real lights. */
 interface Lamp {
@@ -96,6 +104,8 @@ export class Engine {
   private roomsGroup = new THREE.Group();
   private roomShadows = new THREE.Group();
   private itemsGroup = new THREE.Group();
+  /** identical furniture parts drawn in batches */
+  private inst = new Instancer();
   private rooms = new Map<string, RoomView>();
   private items = new Map<string, ItemView>();
   private house: House = { rooms: [], items: [] };
@@ -117,6 +127,8 @@ export class Engine {
   private composer: EffectComposer;
   private ao: GTAOPass;
   private bloom: UnrealBloomPass;
+  /** frames drawn while the view moves: the scene at reduced resolution, then tone mapping */
+  private fast: EffectComposer;
   private fx = true;
   private raf = 0;
   private last = performance.now();
@@ -178,7 +190,7 @@ export class Engine {
     this.sun.shadow.normalBias = 0.02;
     this.sun.shadow.radius = 2.5;
 
-    this.scene.add(this.sun, this.sun.target, this.roomsGroup, this.itemsGroup, this.roomShadows);
+    this.scene.add(this.sun, this.sun.target, this.roomsGroup, this.itemsGroup, this.roomShadows, this.inst.root);
     this.buildPool();
 
     const c = new OrbitControls(this.camera, r.domElement);
@@ -219,6 +231,9 @@ export class Engine {
     this.bloom = new UnrealBloomPass(new THREE.Vector2(2, 2), 0.22, 0.3, 0.95);
     this.composer.addPass(this.bloom);
     this.composer.addPass(new OutputPass());
+    this.fast = new EffectComposer(r);
+    this.fast.addPass(new RenderPass(this.scene, this.camera));
+    this.fast.addPass(new OutputPass());
     this.setTime(15);
     this.resize();
     this.offPainted = onSurfacePainted(() => this.invalidate());
@@ -231,6 +246,7 @@ export class Engine {
     cancelAnimationFrame(this.raf);
     this.offPainted();
     this.stopRealistic();
+    this.fast.dispose();
     this.ro.disconnect();
     this.host.removeEventListener('pointerdown', this.onDown, true);
     window.removeEventListener('keydown', this.onKey);
@@ -324,13 +340,15 @@ export class Engine {
   private applyNight() {
 
     this.applyLights();
-    this.itemsGroup.traverse((o) => {
-      const m = (o as THREE.Mesh).material as THREE.MeshPhysicalMaterial | undefined;
-      if (m && m.name === 'window') {
-        m.emissive.set('#ffcf8a');
-        m.emissiveIntensity = this.night ? 0.55 : 0;
+    const glowWindow = (m: THREE.Material | undefined) => {
+      const p = m as THREE.MeshPhysicalMaterial | undefined;
+      if (p && p.name === 'window') {
+        p.emissive.set('#ffcf8a');
+        p.emissiveIntensity = this.night ? 0.55 : 0;
       }
-    });
+    };
+    this.itemsGroup.traverse((o) => glowWindow((o as THREE.Mesh).material as THREE.Material | undefined));
+    this.inst.materials().forEach(glowWindow);
   }
 
   /* ---------------------------------------------------------------- lamps */
@@ -775,6 +793,7 @@ export class Engine {
     // loaded on demand so the app itself starts fast
     const lib = await import('three-gpu-pathtracer');
     if (this.pt) return;
+    this.inst.setEnabled(false);
     this.render();
     const day = 1 - this.nightness;
     const grad = new lib.GradientEquirectTexture(256);
@@ -876,6 +895,8 @@ export class Engine {
       orig.visible = true;
     }
     this.ptSplit = [];
+    this.inst.setEnabled(true);
+    this.regroup();
     const s = this.ptSaved!;
     this.scene.environment = s.env;
     this.scene.background = s.bg;
@@ -997,7 +1018,7 @@ export class Engine {
       g.rotation.y = it.r;
       g.userData.itemId = it.id;
       this.itemsGroup.add(g);
-      const iv: ItemView = { key, item: it, group: g };
+      const iv: ItemView = { key, item: it, group: g, radius: new THREE.Box3().setFromObject(g).getBoundingSphere(new THREE.Sphere()).radius };
       this.attachLight(iv);
       this.items.set(it.id, iv);
       added = true;
@@ -1039,6 +1060,7 @@ export class Engine {
     this.placeCeilingItems();
     this.items.forEach((v) => (v.indoor = !!h.rooms.find((r) => !r.outdoor && lvl(r) === lvl(v.item) && inRoom(r, v.item.x, v.item.z)) && catalogById.get(v.item.t)?.mount !== 'wall'));
     this.items.forEach((v) => this.syncLight(v));
+    this.regroup();
     if (added) this.applyNight();
     else this.applyLights();
     this.fitShadow();
@@ -1078,6 +1100,7 @@ export class Engine {
     this.items.forEach((v) => {
       const room = this.house.rooms.find((o) => lvl(o) === lvl(v.item) && inRoom(o, v.item.x, v.item.z));
       const f = room ? df.get(room.id) ?? 1 : 1;
+      v.tint = f;
       v.group.traverse((o) => {
         const m = (o as THREE.Mesh).material;
         if (m) scale(m, f);
@@ -1193,9 +1216,38 @@ export class Engine {
   }
 
   setSelection(itemId: string | null, roomId: string | null) {
+    const regroup = itemId !== this.selItem;
     this.selItem = itemId;
     this.selRoom = roomId;
+    // the selected item is drawn on its own, so it can be dragged and outlined
+    if (regroup) this.regroup();
     this.refreshSelection();
+  }
+
+  private covered = new WeakMap<ItemView, { al: number; house: House; hit: boolean }>();
+  /** Is an item on a lower storey under an indoor room (not a void) of the storeys up to al? */
+  private coveredBelow(v: ItemView, al: number) {
+    const c = this.covered.get(v);
+    if (c && c.al === al && c.house === this.house) return c.hit;
+    const l = lvl(v.item), { x, z } = v.item;
+    const hit = this.house.rooms.some((r) => !r.outdoor && r.type !== 'void' && lvl(r) > l && lvl(r) <= al && inRoom(r, x, z));
+    this.covered.set(v, { al, house: this.house, hit });
+    return hit;
+  }
+
+  /** Rebuild the furniture batches (items, selection or room daylight changed). */
+  private regroup() {
+    this.itemsGroup.updateMatrixWorld();
+    this.inst.setItems(
+      [...this.items.values()].map((v) => {
+        let hinged = false;
+        v.group.traverse((o) => (hinged ||= !!o.userData.hinge));
+        // lamps batch too; their shades are grouped by on/off, brightness and colour temperature
+        const lamp = v.spec ? `${v.item.off ? 0 : 1}|${v.item.lm ?? v.spec.lm}|${v.item.k ?? 3000}` : undefined;
+        return { group: v.group, tint: v.tint ?? 1, own: hinged || v.item.id === this.selItem, glow: v.glow, lamp };
+      }),
+    );
+    this.invalidate();
   }
 
   private refreshSelection() {
@@ -1895,6 +1947,8 @@ export class Engine {
       this.renderer.setSize(r.width, r.height, false);
       this.composer.setPixelRatio(this.renderer.getPixelRatio());
       this.composer.setSize(r.width, r.height);
+      this.fast.setPixelRatio(this.renderer.getPixelRatio() * MOVING_SCALE);
+      this.fast.setSize(r.width, r.height);
       Object.assign(el.style, { left: '0', top: '0', width: '100%', height: '100%' });
       this.camera.aspect = r.width / r.height;
     }
@@ -2026,13 +2080,22 @@ export class Engine {
       st.roof.position.y += this.roofLift * 6;
     }
 
+    // pixels on screen per metre of size at one metre away (for skipping specks)
+    const pxPerM = this.renderer.domElement.height / 2 / Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2));
     this.items.forEach((v) => {
       const wv = this.wallOf.get(v.item.id);
       v.group.visible = building ? this.buildFurniture && this.buildExplode < 0.02 : showLevel(lvl(v.item)) && !(wv && this.lowWalls.has(wv) && !this.photo);
       if (v.group.visible && v.indoor && hiddenInside(v.group.position)) v.group.visible = false;
       // ceiling fixtures would float in mid-air when looking down into a roofless room
       if (v.group.visible && inside && catalogById.get(v.item.t)?.mount === 'ceiling') v.group.visible = cam.y < v.group.position.y + 2.7;
+      // furniture on the storeys below is under the floor being looked at (unless a void opens onto it)
+      if (v.group.visible && inside && lvl(v.item) < AL && this.coveredBelow(v, AL)) v.group.visible = false;
+      // anything smaller than ~3 pixels from here (books, vases from across the garden) is not drawn
+      if (v.group.visible && !wv && !v.spec && !this.photo && v.radius !== undefined && v.radius * pxPerM < 3 * cam.distanceTo(v.group.position)) v.group.visible = false;
     });
+    // batched parts follow the items' visibility and placement
+    this.itemsGroup.updateMatrixWorld();
+    this.inst.sync();
     this.assignPool();
 
     this.helper?.update();
@@ -2042,14 +2105,15 @@ export class Engine {
     r.setScissorTest(false);
     r.clear();
     if (this.shadowDirty && r.shadowMap.enabled) this.updateShadows();
-    // ambient occlusion + bloom go on the settled frame. Moving frames take the same route with
-    // those passes off (only the tone-mapping pass), so every material needs one shader variant
-    // — the off-screen one — instead of a second for drawing straight to the screen
+    // ambient occlusion + bloom go on the settled frame; moving frames draw the scene at 70%
+    // resolution into an off-screen buffer and only tone-map it. Both go off-screen, so every
+    // material needs one shader variant instead of a second for drawing straight to the screen
     if (this.fx && !this.photo) {
-      this.ao.enabled = this.bloom.enabled = full;
-      // a soft halo round bright lamps, not a haze over the room
-      this.bloom.strength = 0.08 + 0.1 * this.nightness;
-      this.composer.render();
+      if (full) {
+        // a soft halo round bright lamps, not a haze over the room
+        this.bloom.strength = 0.08 + 0.1 * this.nightness;
+        this.composer.render();
+      } else this.fast.render();
     } else r.render(this.scene, this.camera);
     if (!this.photo && !this.walker) {
       const s = this.cubeSize;

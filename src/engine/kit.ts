@@ -5,7 +5,7 @@ import { sharedTex } from './textures';
 
 const v2 = (n: number) => new THREE.Vector2(n, n);
 
-export const MAT = {
+const RAW = {
   wood: (c: string) => {
     const t = sharedTex();
     return new THREE.MeshStandardMaterial({ color: c, map: t.wood, normalMap: t.woodN, normalScale: v2(0.35), roughness: 0.55 });
@@ -35,6 +35,22 @@ export const MAT = {
   glow: (c: string, i = 0.5) => new THREE.MeshStandardMaterial({ color: c, emissive: c, emissiveIntensity: i, roughness: 1, side: THREE.DoubleSide }),
   screen: () => new THREE.MeshStandardMaterial({ color: '#000', emissive: '#ffffff', emissiveMap: sharedTex().screen, emissiveIntensity: 0.55, roughness: 0.15, metalness: 0.2 }),
 };
+
+/*
+ * One material per kind and colour: a bookcase asks for a material per book, and identical
+ * ones must be the same object for the parts to merge into one mesh. Placed items get their
+ * own copies (models.ts), so sharing here is safe.
+ */
+const made = new Map<string, THREE.Material>();
+function memo<F extends (...a: never[]) => THREE.Material>(name: string, f: F): F {
+  return ((...a: Parameters<F>) => {
+    const k = name + '|' + a.join('|');
+    let m = made.get(k);
+    if (!m) made.set(k, (m = f(...a)));
+    return m;
+  }) as F;
+}
+export const MAT = Object.fromEntries(Object.entries(RAW).map(([k, f]) => [k, memo(k, f as (...a: never[]) => THREE.Material)])) as typeof RAW;
 
 export function shade(c: string, l: number): string {
   const k = new THREE.Color(c);

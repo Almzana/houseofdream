@@ -10,6 +10,9 @@ import { mergeStatic } from './merge';
  */
 const protos = new Map<string, THREE.Group>();
 
+/** The shared model mesh each placed item mesh was cloned from (lets identical parts be batched). */
+export const protoOf = new WeakMap<THREE.Mesh, THREE.Mesh>();
+
 function make(t: string, color: string): THREE.Group {
   const def = catalogById.get(t);
   const g = new THREE.Group();
@@ -47,12 +50,19 @@ export function prepareModel(t: string, color: string) {
 
 /** Build a furniture model; meshes cast/receive shadows unless flagged. */
 export function buildModel(t: string, color: string): THREE.Group {
-  const g = proto(t, color).clone(true);
+  const p = proto(t, color);
+  const g = p.clone(true);
   const own = new Map<THREE.Material, THREE.Material>();
   const mine = (m: THREE.Material) => own.get(m) ?? own.set(m, m.clone()).get(m)!;
+  // clone() keeps the hierarchy order, so the two traversals pair each copy with its original
+  const originals: THREE.Mesh[] = [];
+  p.traverse((o) => (o as THREE.Mesh).isMesh && originals.push(o as THREE.Mesh));
+  let i = 0;
   g.traverse((o) => {
     const m = o as THREE.Mesh;
-    if (m.isMesh) m.material = Array.isArray(m.material) ? m.material.map(mine) : mine(m.material);
+    if (!m.isMesh) return;
+    protoOf.set(m, originals[i++]);
+    m.material = Array.isArray(m.material) ? m.material.map(mine) : mine(m.material);
   });
   return g;
 }
