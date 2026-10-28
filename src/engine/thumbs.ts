@@ -16,6 +16,8 @@ let ctx: { r: THREE.WebGLRenderer; scene: THREE.Scene; cam: THREE.PerspectiveCam
 let running = false;
 
 try {
+  // older thumbnail caches are dead weight in storage (and in memory once parsed)
+  for (const old of ['baan3d.thumbs.v1', 'baan3d.thumbs.v2']) localStorage.removeItem(old);
   const raw = localStorage.getItem(KEY);
   if (raw) Object.entries(JSON.parse(raw) as Record<string, string>).forEach(([k, v]) => cache.set(k, v));
 } catch {
@@ -54,6 +56,15 @@ function setup() {
   const cam = new THREE.PerspectiveCamera(30, 1, 0.01, 100);
   ctx = { r, scene, cam, sun, ground };
   return ctx;
+}
+
+/** Give back the second WebGL context and its buffers once the queue is empty. */
+function release() {
+  if (!ctx) return;
+  ctx.scene.environment?.dispose();
+  ctx.r.dispose();
+  ctx.r.forceContextLoss();
+  ctx = null;
 }
 
 /** Point the sun and shadow floor at an item of the given bounds. */
@@ -131,6 +142,7 @@ function pump() {
     else {
       running = false;
       persist();
+      release();
     }
   };
   idle(step);

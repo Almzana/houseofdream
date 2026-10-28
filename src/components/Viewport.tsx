@@ -44,6 +44,7 @@ export function Viewport() {
   /** realistic render progress: null = off, s = −2 while the scene is being prepared */
   const [rt, setRt] = useState<{ s: number; t: number } | null>(null);
   const [pick, setPick] = useState<BuildPick | null>(null);
+  const [ready, setReady] = useState(false);
   const selRoom = useStore((s) => s.selRoom);
   const rooms = useStore((s) => s.house.rooms);
   const planMode = useStore((s) => s.planMode);
@@ -74,12 +75,20 @@ export function Viewport() {
     e.setWallMode(st.wallMode);
     e.setLevel(st.level);
     e.setHour(st.hour);
-    e.setHouse(st.house);
-    e.setViewMode(st.viewMode);
-    e.setSelection(st.selItem, st.selRoom);
-    e.showSetbacks(st.tab === 'code');
-    e.view('iso');
+    e.onReady = () => setReady(true);
+    // let the page paint first, then build the house (the heavy part) and compile its shaders
+    let booted = false;
+    const boot = window.setTimeout(() => {
+      booted = true;
+      const now = useStore.getState();
+      e.setHouse(now.house);
+      e.setViewMode(now.viewMode);
+      e.setSelection(now.selItem, now.selRoom);
+      e.showSetbacks(now.tab === 'code');
+      e.view('iso');
+    }, 50);
     const unsub = useStore.subscribe((s, p) => {
+      if (!booted) return;
       if (s.house !== p.house) e.setHouse(s.house);
       if (s.selItem !== p.selItem || s.selRoom !== p.selRoom) e.setSelection(s.selItem, s.selRoom);
       if (s.wallMode !== p.wallMode) e.setWallMode(s.wallMode);
@@ -94,6 +103,7 @@ export function Viewport() {
       }
     });
     return () => {
+      clearTimeout(boot);
       unsub();
       e.dispose();
       setEngine(null);
@@ -143,6 +153,12 @@ export function Viewport() {
 
   return (
     <div className="stage" ref={host}>
+      {!ready && (
+        <div className="booting" role="status">
+          <span className="spin" aria-hidden />
+          กำลังเตรียมบ้าน…
+        </div>
+      )}
       <div className="float chipbar">
         <span className="where">
           {room ? <>ห้อง <b>{room.name}</b> · {(room.w * room.d).toFixed(1)} ตร.ม.{levels.length > 1 ? ` · ชั้น ${(room.level ?? 0) + 1}` : ''}</> : walking ? 'โหมดเดินชมบ้าน' : 'คลิกพื้นห้องเพื่อเลือกห้อง'}

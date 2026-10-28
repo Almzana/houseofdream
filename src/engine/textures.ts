@@ -32,13 +32,14 @@ export function setCustomCanvas(id: string, c: HTMLCanvasElement) {
   const old = mapsCache.get(id);
   if (old) Object.values(old).forEach((t) => t.dispose());
   mapsCache.delete(id);
+  clones.delete(id);
 }
 
 function paint(s: Surface): HTMLCanvasElement {
   let c = painted.get(s.id);
   if (!c) {
     c = mkCanvas(1024);
-    const x = ctx2d(c);
+    const x = ctx2d(c, false);
     x.scale(2, 2);
     s.draw(x, 512, 512);
     painted.set(s.id, c);
@@ -57,21 +58,88 @@ export function surfaceThumb(s: Surface): string {
   return t;
 }
 
+function paintMaps(s: Surface) {
+  const c = paint(s);
+  let rc: HTMLCanvasElement;
+  if (typeof s.relief === 'function') {
+    rc = mkCanvas(512);
+    const x = ctx2d(rc);
+    x.fillStyle = '#fff';
+    x.fillRect(0, 0, 512, 512);
+    s.relief(x, 512, 512);
+  } else rc = lumaRelief(c, s.relief === 'invluma');
+  return { map: c, ...makeMaps(rc, s.ns * 1.6, s.rough) };
+}
+
+function flat(color: string) {
+  const c = mkCanvas(4);
+  const x = ctx2d(c, false);
+  x.fillStyle = color;
+  x.fillRect(0, 0, 4, 4);
+  return c;
+}
+
+/*
+ * Painting a surface (1024² colour + Sobel normal map) takes 30–250 ms, and a house uses a
+ * dozen or more. Instead of stalling the first view for over a second, a surface first gets
+ * plain stand-in maps and is painted in idle time; the textures (and every clone sharing their
+ * image) are then refreshed in place, so no material or shader changes.
+ */
+// clones made while a surface waits to be painted (dropped once it is)
+const clones = new Map<string, THREE.Texture[]>();
+const pending: Surface[] = [];
+const painters = new Set<() => void>();
+let pumping = false;
+
+/** Called whenever a queued surface has been painted (the view should redraw). */
+export function onSurfacePainted(cb: () => void) {
+  painters.add(cb);
+  return () => {
+    painters.delete(cb);
+  };
+}
+
+function fill(s: Surface, m: SurfaceMaps) {
+  const p = paintMaps(s);
+  m.map.image = p.map;
+  m.normal.image = p.normal;
+  m.rough.image = p.rough;
+  for (const t of [m.map, m.normal, m.rough, ...(clones.get(s.id) ?? [])]) t.needsUpdate = true;
+  clones.delete(s.id);
+}
+
+function pump() {
+  if (pumping) return;
+  pumping = true;
+  const idle: (cb: () => void) => void = (window as unknown as { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => void }).requestIdleCallback
+    ? (cb) => (window as unknown as { requestIdleCallback: (cb: () => void, o: { timeout: number }) => void }).requestIdleCallback(cb, { timeout: 120 })
+    : (cb) => setTimeout(cb, 16);
+  const step = () => {
+    const s = pending.shift();
+    if (s) {
+      const m = mapsCache.get(s.id);
+      if (m) fill(s, m);
+      painters.forEach((cb) => cb());
+    }
+    if (pending.length) idle(step);
+    else pumping = false;
+  };
+  idle(step);
+}
+
 /** Base map + normal + roughness for a surface (shared; clone the base map to change repeat). */
 export function surfaceMaps(s: Surface): SurfaceMaps {
   let m = mapsCache.get(s.id);
   if (!m) {
-    const c = paint(s);
-    let rc: HTMLCanvasElement;
-    if (typeof s.relief === 'function') {
-      rc = mkCanvas(512);
-      const x = ctx2d(rc);
-      x.fillStyle = '#fff';
-      x.fillRect(0, 0, 512, 512);
-      s.relief(x, 512, 512);
-    } else rc = lumaRelief(c, s.relief === 'invluma');
-    const maps = makeMaps(rc, s.ns * 1.6, s.rough);
-    m = { map: texFrom(c), normal: texFrom(maps.normal, false), rough: texFrom(maps.rough, false) };
+    if (painted.has(s.id)) {
+      // already painted (a swatch was shown, or a custom upload): build the real maps at once
+      const p = paintMaps(s);
+      m = { map: texFrom(p.map), normal: texFrom(p.normal, false), rough: texFrom(p.rough, false) };
+    } else {
+      m = { map: texFrom(flat('#d9d6d0')), normal: texFrom(flat('#8080ff'), false), rough: texFrom(flat('#c8c8c8'), false) };
+      pending.push(s);
+      pump();
+    }
     mapsCache.set(s.id, m);
   }
   return m;
@@ -84,6 +152,11 @@ export function surfaceSet(s: Surface, rx = 1 / s.unit[0], ry = 1 / s.unit[1]) {
     const c = t.clone();
     c.needsUpdate = true;
     c.repeat.set(rx, ry);
+    if (pending.includes(s)) {
+      const list = clones.get(s.id) ?? [];
+      list.push(c);
+      clones.set(s.id, list);
+    }
     return c;
   };
   return { map: rep(m.map), normalMap: rep(m.normal), roughnessMap: rep(m.rough) };

@@ -389,3 +389,6 @@ details.room .body { padding: 12px; display: flex; flex-direction: column; gap: 
 .checks small { font-size: 11.5px; color: var(--muted); }
 .dims3.five { grid-template-columns: repeat(5, minmax(0, 1fr)); }
 .tabs button { font-size: 12px; }
+.booting { position: absolute; inset: 0; z-index: 5; display: flex; align-items: center; justify-content: center; gap: 10px; background: var(--bg); color: var(--muted); font-size: 13px; pointer-events: none; }
+.booting .spin { width: 16px; height: 16px; border: 2px solid var(--line); border-top-color: var(--ink); border-radius: 50%; animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }

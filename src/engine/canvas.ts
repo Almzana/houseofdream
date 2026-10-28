@@ -8,8 +8,9 @@ export function mkCanvas(w = 512, h = w): HTMLCanvasElement {
   return c;
 }
 
-export function ctx2d(c: HTMLCanvasElement): Ctx {
-  return c.getContext('2d', { willReadFrequently: true }) as Ctx;
+/** read = the pixels will be read back (relief and normal maps); otherwise the canvas stays GPU-accelerated */
+export function ctx2d(c: HTMLCanvasElement, read = true): Ctx {
+  return c.getContext('2d', { willReadFrequently: read }) as Ctx;
 }
 
 /** Deterministic xorshift RNG so textures look the same on every load. */

@@ -15,7 +15,7 @@ import { inRoom, levelY } from '../lib/shell';
 import { setbackLines } from '../lib/thaicode';
 import { kelvinRGB } from '../lib/kelvin';
 import { buildModel, disposeModel } from './models';
-import { setAnisotropy, surfaceSet } from './textures';
+import { onSurfacePainted, setAnisotropy, surfaceSet } from './textures';
 import { ctx2d, mkCanvas } from './canvas';
 import { buildStructure, shadowProxy, type Structure, type WallView } from './structure';
 import { Walker } from './walk';
@@ -221,11 +221,15 @@ export class Engine {
     this.composer.addPass(new OutputPass());
     this.setTime(15);
     this.resize();
+    this.offPainted = onSurfacePainted(() => this.invalidate());
     this.loop();
   }
 
+  private offPainted: () => void = () => {};
+
   dispose() {
     cancelAnimationFrame(this.raf);
+    this.offPainted();
     this.stopRealistic();
     this.ro.disconnect();
     this.host.removeEventListener('pointerdown', this.onDown, true);
@@ -567,6 +571,37 @@ export class Engine {
   private probeCam = new THREE.PerspectiveCamera(1, 1, 0.1, 0.2);
   private probeRT = new THREE.WebGLRenderTarget(1, 1);
 
+  /** nothing is drawn until the first house's shaders have compiled in the background */
+  private ready = false;
+  private warming = false;
+  onReady: (() => void) | null = null;
+
+  /**
+   * First load: let the driver compile every shader the opening view needs on its worker
+   * threads (KHR_parallel_shader_compile) instead of stalling the page on the first frame.
+   */
+  private warmUp() {
+    if (this.ready || this.warming) return;
+    this.warming = true;
+    const r = this.renderer;
+    const jobs = [r.compileAsync(this.scene, this.camera)];
+    if (this.fx) {
+      const prev = r.getRenderTarget();
+      r.setRenderTarget(this.composer.readBuffer);
+      jobs.push(r.compileAsync(this.scene, this.camera));
+      r.setRenderTarget(prev);
+    }
+    Promise.all(jobs)
+      .catch(() => {})
+      .finally(() => {
+        this.ready = true;
+        this.markShadows();
+        this.onReady?.();
+        // then the other side of dusk, in the background
+        this.schedulePrewarm();
+      });
+  }
+
   private prewarmTimer = 0;
   /**
    * Lamps join the scene at dusk, which changes the light count and would make three.js
@@ -576,7 +611,9 @@ export class Engine {
   private schedulePrewarm() {
     clearTimeout(this.prewarmTimer);
     this.prewarmTimer = window.setTimeout(() => {
-      if (this.pt) return;
+      if (this.pt || !this.ready) return;
+      // it costs a moment of main-thread time: wait until the view has been still for a while
+      if (performance.now() - this.stillSince < 2500 || this.walker) return this.schedulePrewarm();
       const was = this.poolGroup.visible;
       // compile only looks at visible objects: briefly show the hidden ones (ceilings, other storeys, roof)
       const hidden: THREE.Object3D[] = [];
@@ -1788,6 +1825,10 @@ export class Engine {
 
   private loop = () => {
     this.raf = requestAnimationFrame(this.loop);
+    if (!this.ready) {
+      if (this.structure) this.warmUp();
+      return;
+    }
     const now = performance.now();
     const gap = now - this.last;
     const dt = Math.min(0.05, gap / 1000);
