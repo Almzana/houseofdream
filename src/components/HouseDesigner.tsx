@@ -10,14 +10,15 @@ import { DEFAULT_EXT, TIER_STOREY, applyStorey, type RoofStyle, type Tier } from
 
 const TIERS: { id: Tier; name: string; desc: string }[] = [
   { id: 'standard', name: 'มาตรฐาน', desc: 'บ้านเดี่ยวทั่วไป ฝ้า 2.7 ม. เสาเข็มตอก แอร์ติดผนัง' },
-  { id: 'luxury', name: 'Luxury', desc: `2 ชั้น ชั้นสูง ${TIER_STOREY.luxury} ม. · โถงฝ้าสูง 2 ชั้น · ลิฟต์ · ห้องนอนมีห้องน้ำในตัว · สระว่ายน้ำ · เสาเข็มเจาะ พื้น Post-tension · แอร์ VRV · โซลาร์`, },
-  { id: 'ultra', name: 'Ultra Luxury', desc: `3 ชั้น ชั้นสูง ${TIER_STOREY.ultra} ม. · Master suite ทั้งชั้น · โฮมเธียเตอร์ สปา ฟิตเนส ห้องไวน์ ห้องสมุด · เครื่องปั่นไฟสำรอง · Smart home`, },
+  { id: 'luxury', name: 'Luxury', desc: `Neoclassic 2 ชั้น หลังคาดาดฟ้าราวลูกกรง ชั้นสูง ${TIER_STOREY.luxury} ม. · โถงฝ้าสูง 2 ชั้น · ลิฟต์ · ห้องนอนมีห้องน้ำในตัว · สระว่ายน้ำ · เสาเข็มเจาะ พื้น Post-tension · แอร์ VRV · โซลาร์`, },
+  { id: 'ultra', name: 'Ultra Luxury', desc: `Neoclassic 3 ชั้น หลังคาแมนซาร์ด ชั้นสูง ${TIER_STOREY.ultra} ม. · Master suite ทั้งชั้น · โฮมเธียเตอร์ สปา ฟิตเนส ห้องไวน์ ห้องสมุด · เครื่องปั่นไฟสำรอง · Smart home`, },
 ];
 
 export const ROOFS: { id: RoofStyle; name: string; path: string }[] = [
   { id: 'hip', name: 'ปั้นหยา', path: 'M4 30 L20 14 H44 L60 30 Z' },
   { id: 'gable', name: 'จั่ว', path: 'M8 30 L32 10 L56 30 Z' },
   { id: 'flat', name: 'แบน', path: 'M6 22 H58 V30 H6 Z M6 16 H10 V22 H6 Z M54 16 H58 V22 H54 Z' },
+  { id: 'mansard', name: 'แมนซาร์ด', path: 'M8 30 L13 14 H51 L56 30 Z M22 22 h6 v8 h-6 Z M36 22 h6 v8 h-6 Z' },
   { id: 'none', name: 'ไม่มี', path: 'M10 30 H54' },
 ];
 
@@ -77,14 +78,14 @@ export function HouseDesigner() {
         <Stepper label="ห้องนอน" value={o.bedrooms} min={lux ? (o.tier === 'ultra' ? 5 : 4) : 1} max={lux ? 8 : 6} onChange={(bedrooms) => up({ bedrooms })} />
         {!lux && <Stepper label="ห้องน้ำ" value={o.bathrooms} min={1} max={5} onChange={(bathrooms) => up({ bathrooms })} />}
       </div>
-      <div className="roofs" role="group" aria-label="แบบหลังคา">
+      {!lux && <div className="roofs" role="group" aria-label="แบบหลังคา">
         {ROOFS.slice(0, 3).map((r) => (
           <button key={r.id} aria-pressed={o.roof === r.id} onClick={() => up({ roof: r.id })}>
             <RoofIcon path={r.path} />
             {r.name}
           </button>
         ))}
-      </div>
+      </div>}
       <div className="row">
         {lux ? (
           <label className="check"><input type="checkbox" checked={o.pool !== false} onChange={(e) => up({ pool: e.target.checked })} /> สระว่ายน้ำ</label>
@@ -127,7 +128,7 @@ export function ExteriorEditor() {
   return (
     <>
       <h3>หลังคา</h3>
-      <div className="roofs four" role="group" aria-label="แบบหลังคา">
+      <div className="roofs five" role="group" aria-label="แบบหลังคา">
         {ROOFS.map((r) => (
           <button key={r.id} aria-pressed={ext.roof === r.id} onClick={() => setExt({ roof: r.id })}>
             <RoofIcon path={r.path} />
@@ -149,6 +150,11 @@ export function ExteriorEditor() {
             onKeyUp={() => pitch !== ext.pitch && setExt({ pitch })} />
         </div>
       )}
+      <h3>สไตล์ด้านหน้าอาคาร</h3>
+      <div className="seg wide" role="group" aria-label="สไตล์ด้านหน้าอาคาร">
+        <button aria-pressed={(ext.style ?? 'modern') === 'modern'} onClick={() => setExt({ style: 'modern' })}>โมเดิร์น</button>
+        <button aria-pressed={ext.style === 'classic'} onClick={() => setExt({ style: 'classic' })}>คลาสสิก (Neoclassic)</button>
+      </div>
       <h3>ผนังภายนอก</h3>
       <div className="grid small">
         {EXT_WALLS.map((id) => {

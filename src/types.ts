@@ -60,7 +60,9 @@ export interface Item {
   l?: number;
 }
 
-export type RoofStyle = 'hip' | 'gable' | 'flat' | 'none';
+export type RoofStyle = 'hip' | 'gable' | 'flat' | 'mansard' | 'none';
+/** modern: plain walls · classic: neoclassical mouldings, arches, balustrades */
+export type FacadeStyle = 'modern' | 'classic';
 
 /** The building shell seen from outside. */
 export interface Exterior {
@@ -71,6 +73,7 @@ export interface Exterior {
   wallPat: string;
   wallColor: string;
   fence: boolean;
+  style?: FacadeStyle;
 }
 
 /** How the house is built: wall blocks, pipes, wiring, piles. */

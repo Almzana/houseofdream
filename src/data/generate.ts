@@ -203,7 +203,7 @@ export function entranceSide(room: Room, items: Item[]): Side {
  * Thai building rules want doors/windows to the outside of at least 10% of each habitable
  * room's floor: add windows on free stretches of its outside walls until it complies.
  */
-function ensureVentilation(rooms: Room[], items: Item[]) {
+function ensureVentilation(rooms: Room[], items: Item[], classic = false) {
   const lookup = (t: string) => catalogById.get(t);
   for (const r of rooms) {
     if (r.outdoor || !['living', 'bedroom', 'dining', 'office', 'kitchen', 'bathroom'].includes(r.type)) continue;
@@ -224,7 +224,7 @@ function ensureVentilation(rooms: Room[], items: Item[]) {
       }
       if (!best) break;
       const { s, at } = best;
-      const t = best.room > (r.type === 'bathroom' ? 2.0 : 2.6) && r.w * r.d > 8 ? 'bigwindow' : 'window';
+      const t = classic ? (['bathroom', 'kitchen', 'laundry', 'maid'].includes(r.type) ? 'classicwindow' : 'frenchdoor') : best.room > (r.type === 'bathroom' ? 2.0 : 2.6) && r.w * r.d > 8 ? 'bigwindow' : 'window';
       const inward = s.plus === r.id ? 1 : -1; // room side
       // wall items face into the room: r = 0 faces +z, π/2 faces +x
       const rot = s.axis === 'x' ? (inward > 0 ? 0 : P) : inward > 0 ? P / 2 : -P / 2;
@@ -444,16 +444,19 @@ export function generateHouse(o: GenOptions): House {
 /* ------------------------------------------------------------------ villas */
 
 /**
- * Luxury (2 storeys) or ultra-luxury (3 storeys) villa: tall storeys, a double-height living
- * room under a void, en-suite bedrooms, a master suite with walk-in closet, lift and stair
- * stacked through every floor, staff rooms, and a pool terrace and motor court in front.
+ * Neoclassical luxury (2 storeys, flat roof behind a balustrade) or ultra-luxury (3 storeys under
+ * a mansard) villa in the manner of Thai luxury-home studios: a symmetric front of five bays
+ * (wing · double-height living · entrance hall · dining · wing) with a porte-cochère and balcony
+ * on the axis, tall storeys, en-suite bedrooms, master suite with dressing room, lift and stair
+ * through every floor, staff rooms at the back, a forecourt with a fountain and formal gardens in
+ * front, and the pool deck behind the house.
  */
 function generateVilla(tier: Exclude<Tier, 'standard'>, o: GenOptions): House {
   const ultra = tier === 'ultra';
   const storey = TIER_STOREY[tier];
   applyStorey({ storey });
   const H = ultra ? 3.3 : 3.0; // floor to ceiling
-  const Db = Math.max(5.5, stairSteps(storey).len + 0.5), Dc = 2.0, Df = ultra ? 7.0 : 6.5, DF = Dc + Df;
+  const Db = Math.max(5.5, stairSteps(storey).len + 0.5), Dc = 2.0, Df = ultra ? 7.0 : 6.5, DF = Dc + Df, D = Db + DF;
   const beds = Math.max(ultra ? 5 : 4, Math.min(8, o.bedrooms));
   const rooms: Room[] = [];
   const items: Item[] = [];
@@ -463,47 +466,55 @@ function generateVilla(tier: Exclude<Tier, 'standard'>, o: GenOptions): House {
   const lift: Cell = { type: 'lift', name: 'ลิฟต์', w: 2.4, fixed: true };
   const stair: Cell = { type: 'hall', name: 'โถงบันได', w: 3.2, fixed: true };
   const suite = (n: number): Cell[] => [{ type: 'bedroom', name: `ห้องนอน ${n}`, w: 4.6 }, { type: 'bathroom', name: `ห้องน้ำ ${n}`, w: 2.6, fixed: true }];
-
-  // ---- rows (z = 0 at the back) ----
-  const g0back: Cell[] = ultra
-    ? [{ type: 'kitchen', name: 'ครัวโชว์ + ครัวไทย', w: 7 }, { type: 'maid', name: 'ห้องแม่บ้าน', w: 3.4, fixed: true }, { type: 'laundry', name: 'ห้องซักรีด', w: 2.6, fixed: true }, { type: 'bathroom', name: 'ห้องน้ำแขก', w: 2.4, fixed: true }, { type: 'wine', name: 'ห้องเก็บไวน์', w: 3.6, fixed: true }, lift, stair]
-    : [{ type: 'kitchen', name: 'ครัวโชว์ + ครัวไทย', w: 6.5 }, { type: 'maid', name: 'ห้องแม่บ้าน', w: 3.2, fixed: true }, { type: 'laundry', name: 'ห้องซักรีด', w: 2.6, fixed: true }, { type: 'bathroom', name: 'ห้องน้ำแขก', w: 2.2, fixed: true }, lift, stair];
-  const g0front: Cell[] = ultra
-    ? [{ type: 'living', name: 'ห้องนั่งเล่น (ฝ้าสูง 2 ชั้น)', w: 9.5 }, { type: 'dining', name: 'ห้องอาหาร', w: 6 }, { type: 'hall', name: 'โถงต้อนรับ', w: 3.5, fixed: true }, { type: 'theater', name: 'ห้องโฮมเธียเตอร์', w: 6.5 }]
-    : [{ type: 'living', name: 'ห้องนั่งเล่น (ฝ้าสูง 2 ชั้น)', w: 8 }, { type: 'dining', name: 'ห้องอาหาร', w: 5.5 }, { type: 'hall', name: 'โถงต้อนรับ', w: 3.2, fixed: true }, { type: 'office', name: 'ห้องครอบครัว / ทำงาน', w: 5.5 }];
-  // bedrooms other than the master run along the back of the upper floors
-  const upperBeds = ultra ? Math.max(3, beds - 2) : beds - 1;
-  const l1back: Cell[] = [];
-  for (let i = 0; i < upperBeds; i++) l1back.push(...suite(i + 2));
-  l1back.push(lift, stair);
-  const l2back: Cell[] = ultra ? [{ type: 'spa', name: 'สปา / ซาวน่า', w: 5 }, { type: 'gym', name: 'ห้องฟิตเนส', w: 6 }, { type: 'library', name: 'ห้องสมุด', w: 5 }, lift, stair] : [];
   const total = (c: Cell[]) => c.reduce((a, x) => a + x.w, 0);
-  const W = Math.max(total(g0back), total(g0front), total(l1back), total(l2back), ultra ? 25 : 22);
+
+  // ---- back rows (z = 0 at the back): service rooms, suites, spa floor ----
+  const g0back: Cell[] = [
+    { type: 'kitchen', name: 'ครัวโชว์ + ครัวไทย', w: ultra ? 7 : 6.5, fixed: true },
+    { type: 'living', name: 'ห้องครอบครัว', w: 5 },
+    { type: 'maid', name: 'ห้องแม่บ้าน', w: ultra ? 3.4 : 3.2, fixed: true },
+    { type: 'laundry', name: 'ห้องซักรีด', w: 2.6, fixed: true },
+    { type: 'bathroom', name: 'ห้องน้ำแขก', w: ultra ? 2.4 : 2.2, fixed: true },
+    ...(ultra ? [{ type: 'wine', name: 'ห้องเก็บไวน์', w: 3.6, fixed: true } as Cell] : []),
+    lift, stair,
+  ];
+  // the master and the front guest rooms are in the front bays; the rest are suites at the back
+  const backSuites = Math.max(2, beds - (ultra ? 3 : 2));
+  const l1back: Cell[] = [];
+  for (let i = 0; i < backSuites; i++) l1back.push(...suite(i + (ultra ? 4 : 3)));
+  l1back.push({ type: 'library', name: 'ห้องนั่งเล่นครอบครัว', w: 3 }, lift, stair);
+  const l2back: Cell[] = ultra ? [{ type: 'spa', name: 'สปา / ซาวน่า', w: 5 }, { type: 'gym', name: 'ห้องฟิตเนส', w: 6 }, { type: 'theater', name: 'ห้องโฮมเธียเตอร์', w: 6.5 }, lift, stair] : [];
+
+  // ---- symmetric front: wing a · bay b · entrance f · bay b · wing a ----
+  const a = ultra ? 6 : 5.5, f = ultra ? 5 : 4.5;
+  const W = Math.max(total(g0back), total(l1back), total(l2back), 2 * a + 2 * (ultra ? 7 : 6) + f);
+  const b = (W - 2 * a - f) / 2;
+  const front = (cells: [RoomType, string, number][]): Cell[] => cells.map(([type, name, w]) => ({ type, name, w, fixed: true }));
 
   const make = (cells: Cell[], z0: number, z1: number, L: number) => row(cells, z0, z1, W, L).map((r) => ((r.h = H), r));
   const G0 = make(g0back, 0, Db, 0);
-  const G0F = make(g0front, Db, Db + DF, 0);
-  const living = G0F[0];
-  living.h = storey + H; // double height under the void
-  // upper front rows line up with the ground floor cells below them
-  const over = (cells: [RoomType, string][]): Cell[] => cells.map(([type, name], i) => ({ type, name, w: G0F[i].w, fixed: true }));
+  const G0F = make(front([['living', 'ห้องรับแขก (Salon)', a], ['living', 'ห้องนั่งเล่น (ฝ้าสูง 2 ชั้น)', b], ['hall', 'โถงต้อนรับ (Grand foyer)', f], ['dining', 'ห้องอาหาร', b], ['office', 'ห้องทำงาน', a]]), Db, D, 0);
+  const [salon, living, foyer, dining, office] = G0F;
+  // double height under the void, up to the storey above it (or the roof)
+  living.h = ultra ? 2 * storey : storey + H;
   const L1 = make(l1back, 0, Db, 1);
-  const L1H = make([{ type: 'hall', name: 'ทางเดินชั้น 2', w: 1 }], Db, Db + Dc, 1);
+  const L1H = make([{ type: 'hall', name: 'ทางเดินชั้น 2 (Gallery)', w: 1 }], Db, Db + Dc, 1);
   const L1F = make(
-    ultra
-      ? over([['void', 'ช่องเปิดโล่ง'], ['bedroom', 'ห้องนอนแขก'], ['bathroom', 'ห้องน้ำแขก'], ['library', 'ห้องนั่งเล่นครอบครัว']])
-      : over([['void', 'ช่องเปิดโล่ง'], ['bedroom', 'ห้องนอนใหญ่'], ['closet', 'ห้องแต่งตัว'], ['bathroom', 'ห้องน้ำห้องนอนใหญ่']]),
-    Db + Dc, Db + DF, 1,
+    front(
+      ultra
+        ? [['bathroom', 'ห้องน้ำ 2', 2.4], ['bedroom', 'ห้องนอน 2', a - 2.4], ['void', 'ช่องเปิดโล่ง', b], ['library', 'ห้องนั่งเล่นชั้นบน', f], ['bedroom', 'ห้องนอน 3', b], ['bathroom', 'ห้องน้ำ 3', 2.6], ['closet', 'ห้องแต่งตัว 3', a - 2.6]]
+        : [['bathroom', 'ห้องน้ำแขก', 2.4], ['bedroom', 'ห้องนอนแขก', a - 2.4], ['void', 'ช่องเปิดโล่ง', b], ['library', 'ห้องนั่งเล่นชั้นบน', f], ['bedroom', 'ห้องนอนใหญ่ (Master)', b], ['closet', 'ห้องแต่งตัว', 2.6], ['bathroom', 'ห้องน้ำห้องนอนใหญ่', a - 2.6]],
+    ),
+    Db + Dc, D, 1,
   );
   rooms.push(...G0, ...G0F, ...L1, ...L1H, ...L1F);
   let L2: Room[] = [], L2H: Room[] = [], L2F: Room[] = [];
   if (ultra) {
     L2 = make(l2back, 0, Db, 2);
     L2H = make([{ type: 'hall', name: 'ทางเดินชั้น 3', w: 1 }], Db, Db + Dc, 2);
-    L2F = make(over([['bedroom', 'ห้องนอนใหญ่ (Master suite)'], ['closet', 'ห้องแต่งตัว'], ['bathroom', 'ห้องน้ำห้องนอนใหญ่'], ['office', 'ห้องทำงาน']]), Db + Dc, Db + DF, 2);
+    L2F = make(front([['bathroom', 'ห้องน้ำ Master', a - 3], ['closet', 'ห้องแต่งตัว Master', 3], ['bedroom', 'ห้องนอนใหญ่ (Master suite)', b], ['library', 'ห้องนั่งเล่นส่วนตัว', f], ['office', 'ห้องทำงานส่วนตัว', b], ['library', 'ห้องสมุด', a]]), Db + Dc, D, 2);
     rooms.push(...L2, ...L2H, ...L2F);
   }
-  const D = Db + DF;
 
   // ---- doors ----
   [G0, L1, L2].forEach((back, L) => {
@@ -515,20 +526,28 @@ function generateVilla(tier: Exclude<Tier, 'standard'>, o: GenOptions): House {
       side.set(r.id, 's');
     }
   });
-  // ground: open-plan living/dining, foyer with the front door, family room / theatre off it
-  const [, dining, foyer, fam] = G0F;
-  add('archway', E(living).x1, living.z - 1.2, -P / 2);
-  add('archway', E(living).x1, living.z + 1.6, -P / 2);
-  add('door', E(dining).x1, dining.z, -P / 2);
-  add('door', E(foyer).x1, foyer.z + 0.5, -P / 2);
+  // ground: salon · living · foyer · dining open into each other, the study has a door
+  add('archway', E(salon).x1, salon.z + 1.2, -P / 2);
+  add('archway', E(living).x1, living.z + 1.2, -P / 2);
+  add('archway', E(foyer).x1, foyer.z + 1.2, -P / 2);
+  add('door', E(dining).x1, dining.z + 1.2, -P / 2);
   add('frontdoor', foyer.x, E(foyer).z1, P);
-  for (const x of [E(living).x0 + 1.8, E(living).x0 + 5.0]) if (x + 1.6 < E(living).x1) add('glasswall', x, E(living).z1, P);
-  add('glasswall', dining.x, E(dining).z1, P);
-  side.set(living.id, 'e');
-  side.set(dining.id, 's');
+  // the front elevation, mirrored about the entrance
+  const pair = (r: Room, d: number) => [r.x - d, r.x + d];
+  const wing = (r: Room) => [E(r).x0 + a * 0.27, E(r).x0 + a * 0.73];
+  for (const r of [salon, office]) for (const x of wing(r)) add('classicwindow', x, E(r).z1, P);
+  for (const r of [living, dining]) for (const x of pair(r, b * 0.24)) add('frenchdoor', x, E(r).z1, P);
+  for (const x of pair(living, b * 0.24)) add('upperwindow', x, E(living).z1, P);
+  side.set(salon.id, 'w');
+  side.set(living.id, 'n');
   side.set(foyer.id, 's');
-  side.set(fam.id, 'w');
-  // upper floors: rooms off the corridor; suites open into their closet and bathroom
+  side.set(dining.id, 'n');
+  side.set(office.id, 'e');
+  // family room opens onto the pool deck
+  const fam = G0.find((r) => r.name === 'ห้องครอบครัว')!;
+  for (const x of pair(fam, Math.min(1.1, fam.w / 4))) add('frenchdoor', x, E(fam).z0, 0);
+
+  // upper floors: rooms off the gallery, suites open into their dressing room and bathroom
   (ultra ? [L1F, L2F] : [L1F]).forEach((F, i) => {
     const L = i + 1;
     for (const r of F) {
@@ -536,21 +555,25 @@ function generateVilla(tier: Exclude<Tier, 'standard'>, o: GenOptions): House {
       side.set(r.id, 'n');
       if (r.type === 'bedroom' || r.type === 'library' || r.type === 'office') add('door', E(r).x0 + 0.8, E(r).z0, 0, L);
     }
+    const ok = new Set(['bedroom|closet', 'bedroom|bathroom', 'closet|bathroom']);
     for (let k = 1; k < F.length; k++) {
-      const a = F[k - 1], b = F[k];
-      const linked = (a.type === 'bedroom' && (b.type === 'closet' || b.type === 'bathroom')) || (a.type === 'closet' && b.type === 'bathroom');
-      if (linked) add('door', E(a).x1, a.z + 0.8, -P / 2, L);
+      const p = F[k - 1], q = F[k];
+      if (ok.has(`${p.type}|${q.type}`) || ok.has(`${q.type}|${p.type}`)) add('door', E(p).x1, p.z - 0.6, -P / 2, L);
     }
-    const bedroom = F.find((r) => r.type === 'bedroom');
-    if (bedroom) {
-      add('glasswall', bedroom.x, E(bedroom).z1, P, L);
-      const b = makeRoom('balcony', E(bedroom).x0, D, E(bedroom).x1, D + 2.2, 'ระเบียง');
-      b.level = L;
-      rooms.push(b);
-      side.set(b.id, 'n');
+    // windows on the bays below's axes so the elevation stays symmetric
+    const bayX = [...wing(salon), ...pair(living, b * 0.24), foyer.x, ...pair(dining, b * 0.24), ...wing(office)];
+    for (const x of bayX) {
+      const r = F.find((u) => x > E(u).x0 + 0.3 && x < E(u).x1 - 0.3);
+      if (!r || r.type === 'void') continue;
+      add(Math.abs(x - foyer.x) < 0.01 ? 'frenchdoor' : 'classicwindow', x, D, P, L);
     }
   });
   for (const r of [...L1H, ...L2H]) side.set(r.id, 's');
+  // balcony over the porte-cochère, on the axis
+  const porch = makeRoom('balcony', E(foyer).x0 - 0.8, D, E(foyer).x1 + 0.8, D + 4.0, 'ระเบียงเหนือมุขรถเทียบ');
+  porch.level = 1;
+  rooms.push(porch);
+  side.set(porch.id, 'n');
   // the stair climbs from each storey's stair hall; the lift serves every floor
   const st0 = G0.find((r) => r.type === 'hall')!;
   add('stair', E(st0).x1 - 0.6, st0.z, 0);
@@ -559,33 +582,46 @@ function generateVilla(tier: Exclude<Tier, 'standard'>, o: GenOptions): House {
     add('stair', E(st1).x1 - 0.6, st1.z, 0, 1);
   }
 
-  // ---- outside: motor court, pool terrace, garden ----
-  const Y = 12, Gw = ultra ? 11 : 9;
-  const court = makeRoom('garage', W - Gw, D, W, D + Y, 'ลานจอดรถ / Motor court');
-  const terrace = makeRoom('terrace', 0, D, W - Gw, D + 3.2, 'Pool deck');
-  rooms.push(court, terrace);
+  // ---- outside: forecourt with a fountain between formal gardens; pool deck behind ----
+  const Gw = ultra ? 16 : 14, Y = ultra ? 16 : 14, cx = W / 2;
+  const court = makeRoom('garage', cx - Gw / 2, D, cx + Gw / 2, D + Y, 'ลานหน้าบ้าน (Motor court)');
+  rooms.push(court, makeRoom('garden', 0, D, cx - Gw / 2, D + Y, 'สวนฝรั่งเศส'), makeRoom('garden', cx + Gw / 2, D, W, D + Y, 'สวนฝรั่งเศส'));
+  const terrace = makeRoom('terrace', 0, -3.4, W, 0, 'Pool deck');
+  rooms.push(terrace);
   side.set(terrace.id, 'n');
-  if (o.pool !== false) rooms.push(makeRoom('pool', 0.8, D + 3.8, W - Gw - 0.8, D + (ultra ? 9.6 : 8.8), 'สระว่ายน้ำ'));
-  const garden = makeRoom('garden', 0, D + (ultra ? 10.2 : 9.4), W - Gw, D + Y, 'สวน');
-  rooms.push(garden);
+  const pw = ultra ? 16 : 12, pd = ultra ? 6 : 5, pz = -3.4 - 0.6;
+  if (o.pool !== false) rooms.push(makeRoom('pool', cx - pw / 2, pz - pd, cx + pw / 2, pz, 'สระว่ายน้ำ'));
+  rooms.push(
+    makeRoom('garden', 0, pz - pd - 0.6, cx - pw / 2 - 1.2, -3.4, 'สวนข้างสระ'),
+    makeRoom('garden', cx + pw / 2 + 1.2, pz - pd - 0.6, W, -3.4, 'สวนข้างสระ'),
+    makeRoom('garden', 0, pz - pd - 6.6, W, pz - pd - 0.6, 'สวนหลังบ้าน'),
+  );
 
-  ensureVentilation(rooms, items);
+  // garden front: a regular rhythm of windows along the back rooms
+  [G0, L1, L2].forEach((back, L) => {
+    for (const r of back) {
+      if (r.type === 'lift' || r === fam) continue;
+      const n = r.w > 4.4 ? 2 : 1;
+      for (let k = 0; k < n; k++) add('classicwindow', E(r).x0 + (r.w * (k + 0.5)) / n, 0, 0, L);
+    }
+  });
+  ensureVentilation(rooms, items, true);
   for (const r of rooms) {
-    if (r.type === 'pool' || r.type === 'void' || r.type === 'garage') continue;
+    if (r.type === 'pool' || r.type === 'void' || r.type === 'garage' || r.type === 'garden') continue;
     if (r.type === 'lift' && (r.level ?? 0) > 0) continue;
     items.push(...furnish(r, side.get(r.id) ?? 's'));
   }
-  // cars in the motor court
-  for (let k = 0; k < (ultra ? 3 : 2); k++) add('car', E(court).x0 + 2 + k * 2.6, court.z - 1.5, 0);
+  for (const x of [E(court).x0 + 1.8, E(court).x1 - 1.8]) add('car', x, court.z + 2.5, 0);
+  if (ultra) add('car', E(court).x0 + 1.8, court.z - 3, 0);
 
-  const cx = W / 2, cz = (D + Y) / 2;
-  for (const r of rooms) { r.x = +(r.x - cx).toFixed(3); r.z = +(r.z - cz).toFixed(3); }
-  for (const i of items) { i.x = +(i.x - cx).toFixed(3); i.z = +(i.z - cz).toFixed(3); }
+  const ox = W / 2, oz = D / 2;
+  for (const r of rooms) { r.x = +(r.x - ox).toFixed(3); r.z = +(r.z - oz).toFixed(3); }
+  for (const i of items) { i.x = +(i.x - ox).toFixed(3); i.z = +(i.z - oz).toFixed(3); }
 
-  const ext: Exterior = { ...DEFAULT_EXT, roof: ultra ? 'flat' : o.roof, roofColor: '#3d4248', wallPat: ultra ? 'stone' : 'plain', wallColor: ultra ? '#d8d2c8' : '#f3f0ea' };
+  const ext: Exterior = { ...DEFAULT_EXT, style: 'classic', roof: ultra ? 'mansard' : 'flat', roofColor: '#4a4f56', wallPat: 'plain', wallColor: ultra ? '#d9cab2' : '#e2d5bf', fence: true };
   return {
     rooms, items, ext, tier, storey,
     build: { block: 'aac', pipe: 'ppr', wire: 'thw', pile: 'spun' },
-    site: { left: 4, right: 4, back: 4, front: 3, road: ultra ? 12 : 8 },
+    site: { left: 4, right: 4, back: 2, front: 2, road: ultra ? 12 : 8 },
   };
 }

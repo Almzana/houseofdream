@@ -298,6 +298,9 @@ details.room .body { padding: 12px; display: flex; flex-direction: column; gap: 
 .stepper b { text-align: center; font-family: var(--f-display); font-size: 16px; font-weight: 500; }
 .roofs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 .roofs.four { grid-template-columns: repeat(4, 1fr); }
+.roofs.five { grid-template-columns: repeat(5, 1fr); gap: 6px; }
+.roofs.five button { font-size: 11px; }
+.roofs.five button svg { width: 44px; }
 .roofs button { border: 1px solid var(--line); background: var(--panel); padding: 8px 4px 6px; display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 12.5px; color: var(--muted); }
 .roofs button svg { width: 52px; height: 36px; }
 .roofs button[aria-pressed="true"] { border-color: var(--ink); color: var(--ink); box-shadow: 0 0 0 1px var(--ink); }

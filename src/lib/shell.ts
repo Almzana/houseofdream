@@ -14,6 +14,9 @@ export function wallH(s: Segment, l: number, top: number) {
 export const WALL_T = 0.2; // exterior wall thickness (built outwards from the room edge)
 export const PART_T = 0.1; // partition thickness (centred on the shared edge)
 export const OVERHANG = 0.6; // roof eaves beyond the wall face
+export const MANSARD_H = 2.4; // height of a mansard roof's steep lower slope
+/** How far a roof reaches past the wall face (eaves, or the cornice of a flat/mansard roof). */
+export const roofReach = (roof: string) => (roof === 'flat' || roof === 'mansard' ? 0.3 : OVERHANG);
 export const levelY = (l: number) => l * LEVEL_H;
 
 const lv = (r: Room) => r.level ?? 0;
@@ -79,9 +82,9 @@ export function shellStats(house: House, lookup: Parameters<typeof openingsOf>[1
   const plan = roofPlan(house);
   let roofA = 0;
   if (plan && ext.roof !== 'none') {
-    const o = ext.roof === 'flat' ? 0.3 : OVERHANG;
-    const flat = (plan.x1 - plan.x0 + 2 * o) * (plan.z1 - plan.z0 + 2 * o);
-    roofA = ext.roof === 'flat' ? flat : flat / Math.cos((ext.pitch * Math.PI) / 180);
+    const o = roofReach(ext.roof);
+    const W = plan.x1 - plan.x0 + 2 * o, D = plan.z1 - plan.z0 + 2 * o, flat = W * D;
+    roofA = ext.roof === 'flat' ? flat : ext.roof === 'mansard' ? flat + 2 * (W + D) * 2.5 : flat / Math.cos((ext.pitch * Math.PI) / 180);
   }
   const all = house.rooms;
   let fence = 0;
@@ -108,9 +111,11 @@ export function lotOf(house: House) {
 
 /** Openings in the front fence (+z side): one per garage, plus a gate in front of the entrance. */
 export function gatesOf(house: House, lot: ReturnType<typeof lotOf>): [number, number][] {
+  // a classic forecourt gets one 6 m gate on its axis, not a fence-wide opening
+  const classic = house.ext?.style === 'classic';
   const gates: [number, number][] = house.rooms
     .filter((r) => r.type === 'garage' && lv(r) === 0)
-    .map((r) => [r.x - r.w / 2 + 0.2, r.x + r.w / 2 - 0.2]);
+    .map((r) => (classic && r.w > 7 ? [r.x - 3, r.x + 3] : [r.x - r.w / 2 + 0.2, r.x + r.w / 2 - 0.2]));
   const door = house.items.find((i) => i.t === 'frontdoor' && (i.l ?? 0) === 0);
   if (door) {
     const g: [number, number] = [door.x - 0.7, door.x + 0.7];

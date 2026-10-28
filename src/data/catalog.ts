@@ -439,6 +439,42 @@ export const CATALOG: CatalogItem[] = [
         for (const xx of [x - 0.73, x + 0.73]) rb(g, 0.025, 2.9, 0.03, 0.004, al, xx, 1.46, z);
       }
     } },
+  { id: 'frenchdoor', cats: ['doors'], name: 'ประตูฝรั่งเศสบานคู่ (คลาสสิก)', size: '160×270 ซม. · ไม้/อลูมิเนียมลายไม้ แบ่งช่องกระจก', price: 98000, colors: ['#f1eee8', '#2b2b2b', '#5b4130'], mount: 'wall', opening: { w: 1.6, y0: 0, y1: 2.7, door: true },
+    build(c, g) {
+      const fr = MAT.matte(c);
+      for (const x of [-0.78, 0.78]) rb(g, 0.06, 2.7, 0.14, 0.004, fr, x, 1.35, 0);
+      rb(g, 1.62, 0.06, 0.14, 0.004, fr, 0, 2.67, 0);
+      for (const s of [-1, 1]) {
+        const h = hinge(g, s * 0.75, -s);
+        const lx = -s * 0.375;
+        // leaf: stiles, bottom panel, glazing split into small panes by glazing bars
+        for (const x of [lx - 0.35, lx + 0.35]) rb(h, 0.06, 2.6, 0.05, 0.003, fr, x, 1.32, 0);
+        rb(h, 0.76, 0.5, 0.05, 0.003, fr, lx, 0.27, 0);
+        rb(h, 0.76, 0.06, 0.05, 0.003, fr, lx, 2.6, 0);
+        noShadow(rb(h, 0.66, 2.04, 0.01, 0.002, MAT.window(), lx, 1.55, 0));
+        for (const y of [1.05, 1.56, 2.07]) rb(h, 0.66, 0.025, 0.03, 0.002, fr, lx, y, 0);
+        rb(h, 0.025, 2.04, 0.03, 0.002, fr, lx, 1.55, 0);
+        rb(h, 0.02, 0.16, 0.03, 0.006, MAT.brushed('#c9a45c'), -s * 0.68, 1.1, 0.04);
+      }
+    } },
+  { id: 'classicwindow', cats: ['doors'], name: 'หน้าต่างบานเปิดคลาสสิก', size: '130×185 ซม. · แบ่งช่องกระจก', price: 26000, colors: ['#f1eee8', '#2b2b2b', '#5b4130'], mount: 'wall', opening: { w: 1.3, y0: 0.6, y1: 2.45 },
+    build(c, g) {
+      const fr = MAT.matte(c);
+      for (const x of [-0.62, 0, 0.62]) rb(g, 0.06, 1.85, 0.12, 0.004, fr, x, 1.525, 0);
+      for (const y of [0.63, 2.42]) rb(g, 1.3, 0.06, 0.12, 0.004, fr, 0, y, 0);
+      noShadow(rb(g, 1.22, 1.76, 0.01, 0.002, MAT.window(), 0, 1.525, 0));
+      for (const y of [1.08, 1.53, 1.98]) rb(g, 1.22, 0.025, 0.03, 0.002, fr, 0, y, 0.01);
+      for (const x of [-0.31, 0.31]) rb(g, 0.025, 1.76, 0.03, 0.002, fr, x, 1.525, 0.01);
+    } },
+  { id: 'upperwindow', cats: ['doors'], name: 'หน้าต่างสูงโถงฝ้าสูง 2 ชั้น', size: '160×200 ซม. · ติดตั้งสูง 4.0 ม.', price: 42000, colors: ['#f1eee8', '#2b2b2b', '#5b4130'], mount: 'wall', opening: { w: 1.6, y0: 4.0, y1: 6.0 },
+    build(c, g) {
+      const fr = MAT.matte(c);
+      for (const x of [-0.77, 0, 0.77]) rb(g, 0.06, 2.0, 0.12, 0.004, fr, x, 5.0, 0);
+      for (const y of [4.03, 5.97]) rb(g, 1.6, 0.06, 0.12, 0.004, fr, 0, y, 0);
+      noShadow(rb(g, 1.52, 1.92, 0.01, 0.002, MAT.window(), 0, 5.0, 0));
+      for (const y of [4.5, 5.0, 5.5]) rb(g, 1.52, 0.025, 0.03, 0.002, fr, 0, y, 0.01);
+      for (const x of [-0.38, 0.38]) rb(g, 0.025, 1.92, 0.03, 0.002, fr, x, 5.0, 0.01);
+    } },
   { id: 'chandelier', cats: ['lights', 'living', 'dining'], name: 'โคมระย้าคริสตัล', size: 'ø90 ซม. · 12 ดวง', price: 89000, colors: ['#c9a45c', '#d9d9d9', '#2b2b2b'], mount: 'ceiling', light: { kind: 'point', lm: 4800, at: [0, 2.0, 0] },
     build(c, g) {
       const m = MAT.brushed(c);

@@ -7,12 +7,13 @@ import * as THREE from 'three';
 import { catalogById } from '../data/catalog';
 import { ASPHALT, METAL_SHEET, PAVING, ROOF_TILE, floorById, wallById, type Surface } from '../data/surfaces';
 import { DEFAULT_EXT, LEVEL_H, type Exterior, type House, type Room } from '../types';
-import { OVERHANG, PART_T, WALL_T, gatesOf, inRoom, levelY, levelsOf, lotOf, openingsOf, roofPlan, wallH } from '../lib/shell';
+import { MANSARD_H, OVERHANG, PART_T, WALL_T, gatesOf, inRoom, levelY, levelsOf, lotOf, openingsOf, roofPlan, wallH } from '../lib/shell';
 import { wallPieces, wallSegments, type Segment } from '../lib/walls';
 import { buildModel } from './models';
 import { surfaceSet } from './textures';
 import { mergeShadowCasters, mergeStatic } from './merge';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { balustrade, balustradedDeck, classicMats, column, fountain, gateWall, mansard, merged, parterre, wallOrnament, type ClassicMats, type Part as CPart } from './classic';
 
 /** height walls are cut down to in the "low" cutaway */
 export const LOW = 0.38;
@@ -159,6 +160,8 @@ export function buildStructure(house: House): Structure {
   const reveal = new THREE.MeshStandardMaterial({ color: '#f1eee8', roughness: 0.9, envMapIntensity: 0.5 });
   const cap = new THREE.MeshStandardMaterial({ color: '#3b3531', roughness: 0.85 });
   const skirt = new THREE.MeshStandardMaterial({ color: '#f4f2ee', roughness: 0.5 });
+  const classic = ext.style === 'classic';
+  const cm = classic ? classicMats() : null;
   const roomMats = new Map<string, THREE.Material>();
   const roomMat = (id: string) => {
     let m = roomMats.get(id);
@@ -172,8 +175,10 @@ export function buildStructure(house: House): Structure {
   /* ---------------- walls ---------------- */
   const walls: WallView[] = [];
   const segs = new Map<number, Segment[]>();
+  const segMemo = new Map<number, Segment[]>();
+  const segsAt = (l: number) => segMemo.get(l) ?? segMemo.set(l, wallSegments(rooms, ops, l)).get(l)!;
   for (const l of levels) {
-    const list = wallSegments(rooms, ops, l);
+    const list = segsAt(l);
     segs.set(l, list);
     const here = indoor.filter((r) => lv(r) === l);
     const inside = (x: number, z: number) => here.some((r) => inRoom(r, x, z));
@@ -236,6 +241,26 @@ export function buildStructure(house: House): Structure {
           }
         }
       }
+      if (cm && o !== 0) {
+        // neoclassical mouldings on the outside face (they go with the full wall, not the cutaway)
+        const X = s.axis === 'x';
+        // the storey (if any) whose walls stand on top of this one
+        const lk = l + Math.max(1, Math.round(H / LEVEL_H));
+        const capped = lk > top || !segsAt(lk).some((u) => u.axis === s.axis && Math.abs(u.c - s.c) < 0.05 && u.s0 < s.s1 - 0.1 && u.s1 > s.s0 + 0.1 && !u.void);
+        const balconies = rooms.filter((r) => r.type === 'balcony' && lv(r) === l);
+        const orn: CPart[] = [];
+        wallOrnament(orn, cm, {
+          la: X ? s.s0 : -s.s1, lb: X ? s.s1 : -s.s0, o: o as 1 | -1, wallT: WALL_T, H, level: l, storeyH: LEVEL_H, capped,
+          corner0: X ? ext0 : ext1, corner1: X ? ext1 : ext0,
+          gaps: s.gaps.map((gp) => ({ la: X ? gp.a : -gp.b, lb: X ? gp.b : -gp.a, y0: gp.y0, y1: gp.y1, door: gp.door })),
+          balcony: (along) => {
+            const w = X ? along : -along;
+            const [px, pz] = X ? [w, s.c + o * 0.5] : [s.c + o * 0.5, w];
+            return balconies.some((r) => inRoom(r, px, pz));
+          },
+        });
+        fullParts.push(...orn);
+      }
       const full = assemble(fullParts);
       const low = assemble(lowParts);
       low.visible = false;
@@ -269,7 +294,7 @@ export function buildStructure(house: House): Structure {
   const concrete = new THREE.MeshStandardMaterial({ color: '#d6d1c8', roughness: 0.9 });
   for (const r of indoor) {
     const l = lv(r);
-    if (l >= top) continue;
+    if (l >= top || r.h > LEVEL_H + 0.5) continue;
     // roof deck over any part of a lower storey that the storey above doesn't cover
     const above = indoor.filter((u) => lv(u) === l + 1);
     const pts = [[0, 0], [-0.45, -0.45], [0.45, -0.45], [-0.45, 0.45], [0.45, 0.45]].map(([a, b]) => [r.x + a * r.w, r.z + b * r.d]);
@@ -280,7 +305,8 @@ export function buildStructure(house: House): Structure {
   const steel = new THREE.MeshStandardMaterial({ color: '#2f3134', metalness: 0.7, roughness: 0.4 });
   for (const r of rooms) {
     const l = lv(r);
-    if (r.type === 'garage' && !indoor.some((u) => lv(u) === l + 1 && inRoom(u, r.x, r.z))) {
+    // a classical forecourt stays open to the sky (it has the fountain); garages elsewhere get a carport
+    if (r.type === 'garage' && !(cm && r.w > 9) && !indoor.some((u) => lv(u) === l + 1 && inRoom(u, r.x, r.z))) {
       const g = extra(l);
       const y = levelY(l);
       for (const sx of [-1, 1]) for (const sz of [-1, 1]) box(0.1, 2.6, 0.1, steel, r.x + sx * (r.w / 2 - 0.12), y + 1.3, r.z + sz * (r.d / 2 - 0.12), g);
@@ -288,6 +314,43 @@ export function buildStructure(house: House): Structure {
       const sheet = surfMat(METAL_SHEET, '#7d8186', { metalness: 0.6, roughness: 0.6 }, w / METAL_SHEET.unit[0], d / METAL_SHEET.unit[1]);
       const roof = box(w, 0.05, d, [steel, steel, sheet, sheet, steel, steel], r.x, y + 2.65, r.z, g);
       roof.rotation.x = 0.03;
+    }
+    if (r.type === 'balcony' && cm) {
+      // stone balustrade; where nothing is built below, the balcony rests on columns (a porte-cochère)
+      const g = extra(l);
+      const y = levelY(l);
+      const parts: CPart[] = [];
+      const near = (x: number, z: number) => indoor.some((u) => lv(u) === l && inRoom(u, x, z));
+      const below = (x: number, z: number) => l > 0 && indoor.some((u) => lv(u) === l - 1 && inRoom(u, x, z));
+      const edges: [number, number, number, number, number][] = [
+        [r.x, r.z - r.d / 2, r.w, 0, -1], [r.x, r.z + r.d / 2, r.w, 0, 1], [r.x - r.w / 2, r.z, r.d, Math.PI / 2, -1], [r.x + r.w / 2, r.z, r.d, Math.PI / 2, 1],
+      ];
+      for (const [x, z, len, rot, sgn] of edges) {
+        const ox = rot ? sgn * 0.15 : 0, oz = rot ? 0 : sgn * 0.15;
+        if (near(x + ox, z + oz)) continue;
+        balustrade(parts, cm, len - 0.1, new THREE.Matrix4().makeRotationY(rot).setPosition(x - ox, y, z - oz));
+      }
+      if (l > 0 && !below(r.x, r.z)) {
+        const yb = levelY(l - 1), ent = 0.6;
+        parts.push({ geo: new THREE.BoxGeometry(r.w, ent, r.d).translate(r.x, y - ent / 2, r.z), mats: cm.trim });
+        parts.push({ geo: new THREE.BoxGeometry(r.w + 0.24, 0.14, r.d + 0.24).translate(r.x, y - 0.07, r.z), mats: cm.trim });
+        const hCol = y - ent - yb;
+        const cols: [number, number][] = [];
+        const x0 = r.x - r.w / 2 + 0.4, x1 = r.x + r.w / 2 - 0.4, z0 = r.z - r.d / 2 + 0.4, z1 = r.z + r.d / 2 - 0.4;
+        for (const [cx, cz] of [[x0, z0], [x1, z0], [x0, z1], [x1, z1]]) if (!near(cx, cz) && !below(cx, cz) && !indoor.some((u) => lv(u) === l - 1 && inRoom(u, cx, cz + 0.6) && inRoom(u, cx, cz - 0.6))) cols.push([cx, cz]);
+        // paired columns across the front, spaced about 3.5 m
+        const front = cols.filter(([, cz]) => cz === z1);
+        if (front.length === 2) {
+          const n = Math.max(1, Math.round((x1 - x0) / 3.5));
+          for (let i = 1; i < n; i++) cols.push([x0 + ((x1 - x0) * i) / n, z1]);
+        }
+        const k0 = parts.length;
+        for (const [cx, cz] of cols) column(parts, cm, cx, cz, hCol);
+        for (let i = k0; i < parts.length; i++) parts[i].geo.translate(0, yb, 0);
+      }
+      const mesh = merged(parts);
+      g.add(mesh);
+      continue;
     }
     if (r.type === 'balcony') {
       const g = extra(l);
@@ -317,13 +380,13 @@ export function buildStructure(house: House): Structure {
   /* ---------------- roof ---------------- */
   const roof = new THREE.Group();
   const plan = roofPlan(house);
-  if (plan && ext.roof !== 'none') buildRoof(roof, plan, ext, extMat);
+  if (plan && ext.roof !== 'none') buildRoof(roof, plan, ext, extMat, cm);
   shadowed(roof);
   group.add(roof);
   shadows.add(shadowProxy(roof));
 
   /* ---------------- site ---------------- */
-  const site = buildSite(house, ext, extMat);
+  const site = buildSite(house, ext, extMat, cm);
   mergeStatic(site);
   mergeStatic(roof);
   group.add(site);
@@ -338,12 +401,22 @@ export function buildStructure(house: House): Structure {
 
 type Plan = NonNullable<ReturnType<typeof roofPlan>>;
 
-function buildRoof(g: THREE.Group, plan: Plan, ext: Exterior, extMat: THREE.Material) {
+function buildRoof(g: THREE.Group, plan: Plan, ext: Exterior, extMat: THREE.Material, cm: ClassicMats | null) {
   const W0 = plan.x1 - plan.x0, D0 = plan.z1 - plan.z0;
   const long = W0 >= D0;
   const W = long ? W0 : D0, D = long ? D0 : W0;
   g.position.set((plan.x0 + plan.x1) / 2, plan.base, (plan.z0 + plan.z1) / 2);
   if (!long) g.rotation.y = Math.PI / 2;
+
+  if (ext.roof === 'mansard') {
+    const slate = surfMat(ROOF_TILE, ext.roofColor, { envMapIntensity: 0.8, roughness: 0.75 }, 2, 2);
+    mansard(g, cm ?? classicMats(), W, D, MANSARD_H, slate, extMat);
+    return;
+  }
+  if (ext.roof === 'flat' && cm) {
+    balustradedDeck(g, cm, W, D, new THREE.MeshStandardMaterial({ color: '#cfcac2', roughness: 0.95 }), extMat);
+    return;
+  }
 
   if (ext.roof === 'flat') {
     const o = 0.3;
@@ -425,7 +498,7 @@ function buildRoof(g: THREE.Group, plan: Plan, ext: Exterior, extMat: THREE.Mate
   }
 }
 
-function buildSite(house: House, ext: Exterior, extMat: THREE.Material) {
+function buildSite(house: House, ext: Exterior, extMat: THREE.Material, cm: ClassicMats | null) {
   const g = new THREE.Group();
   const lot = lotOf(house);
   const plane = (w: number, d: number, mat: THREE.Material, x: number, y: number, z: number) => {
@@ -477,8 +550,36 @@ function buildSite(house: House, ext: Exterior, extMat: THREE.Material) {
     g.add(m);
   }
 
+  // classic: formal parterres in the gardens, a fountain on the forecourt's axis
+  if (cm) {
+    const parts: CPart[] = [];
+    for (const r of house.rooms.filter((o) => o.type === 'garden' && (o.level ?? 0) === 0)) parterre(parts, cm, r.x, r.z, r.w, r.d);
+    for (const r of house.rooms.filter((o) => o.type === 'garage' && (o.level ?? 0) === 0 && o.w > 9 && o.d > 9)) fountain(parts, cm, r.x, r.z + 0.5);
+    if (parts.length) g.add(merged(parts));
+  }
+
+  // classic gate wall: pillars with ball finials and wrought-iron railings
+  if (ext.fence && cm) {
+    const parts: CPart[] = [];
+    const run = (x0: number, z0: number, x1: number, z1: number) => {
+      const len = Math.hypot(x1 - x0, z1 - z0);
+      if (len < 0.6) return;
+      gateWall(parts, cm, len, new THREE.Matrix4().makeRotationY(-Math.atan2(z1 - z0, x1 - x0)).setPosition((x0 + x1) / 2, 0, (z0 + z1) / 2), extMat);
+    };
+    run(lot.x0, lot.z0, lot.x1, lot.z0);
+    run(lot.x0, lot.z0, lot.x0, lot.z1);
+    run(lot.x1, lot.z0, lot.x1, lot.z1);
+    let x = lot.x0;
+    for (const [a, b] of gates) {
+      run(x, lot.z1, a, lot.z1);
+      x = b;
+    }
+    run(x, lot.z1, lot.x1, lot.z1);
+    g.add(merged(parts));
+  }
+
   // fence: low masonry wall + posts + aluminium slats, open at the gates
-  if (ext.fence) {
+  if (ext.fence && !cm) {
     const slat = new THREE.MeshStandardMaterial({ color: '#2f3134', metalness: 0.6, roughness: 0.45 });
     const run = (x0: number, z0: number, x1: number, z1: number) => {
       const len = Math.hypot(x1 - x0, z1 - z0);

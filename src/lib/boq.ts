@@ -137,7 +137,7 @@ export function shellBoq(house: House, lookup: Lookup) {
       const pcs = Math.ceil(s.roofA * ROOF.perM2 * 1.05);
       cost += s.roofA * (ROOF.tile + ROOF.frame + ROOF.labor);
       lines.push(
-        [`หลังคา${s.ext.roof === 'hip' ? 'ปั้นหยา' : 'จั่ว'} ${s.ext.pitch}°`, `${n1(s.roofA)} ตร.ม.`],
+        [s.ext.roof === 'mansard' ? 'หลังคาทรงแมนซาร์ด (Mansard) ลาดชัน 72°' : `หลังคา${s.ext.roof === 'hip' ? 'ปั้นหยา' : 'จั่ว'} ${s.ext.pitch}°`, `${n1(s.roofA)} ตร.ม.`],
         ['กระเบื้องคอนกรีต', `${pcs.toLocaleString('th-TH')} แผ่น · ${baht(s.roofA * ROOF.tile)}`],
         ['โครงหลังคาเหล็ก', baht(s.roofA * ROOF.frame)],
         ['ค่าแรงมุงหลังคา', baht(s.roofA * ROOF.labor)],

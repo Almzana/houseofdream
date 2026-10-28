@@ -14,7 +14,7 @@ const STRUCT: Record<Tier, { piles: number; bored?: string; pileD: number; pileL
   luxury: { piles: 2, bored: 'เสาเข็มเจาะ ø0.50 ม. ลึก 18 ม.', pileD: 0.5, pileLen: 18, foot: 1.5, footT: 0.5, ksc: 280, bar: 'DB16', col: 0.3, colBars: '8-DB16', beamW: 0.25, beamH: 0.55, beamBars: '6-DB16 ปลอก RB9 @0.15', pt: 0.2 },
   ultra: { piles: 3, bored: 'เสาเข็มเจาะ ø0.60 ม. ลึก 21 ม.', pileD: 0.6, pileLen: 21, foot: 2.0, footT: 0.7, ksc: 320, bar: 'DB20', col: 0.4, colBars: '12-DB20', beamW: 0.3, beamH: 0.65, beamBars: '8-DB20 ปลอก DB10 @0.15', pt: 0.25 },
 };
-import { OVERHANG, WALL_T, inRoom, levelY, levelsOf, lotOf, openingsOf, roofPlan, wallH } from './shell';
+import { MANSARD_H, OVERHANG, WALL_T, inRoom, levelY, levelsOf, lotOf, openingsOf, roofPlan, wallH } from './shell';
 import { isExterior, wallPieces, wallSegments, type Segment } from './walls';
 
 export type Layer = 'found' | 'frame' | 'walls' | 'roof' | 'ceiling' | 'plumb' | 'elec' | 'systems';
@@ -205,6 +205,15 @@ export function construct(house: House, lookup: Lookup, spec: BuildSpec = { ...D
     const steel = (kind: Kind, name: string, sp: string, a: V3, b: V3, w = 0.1, h = 0.05) => out.push({ layer: 'roof', level: top, kind, name, spec: sp, line: { a, b, w, h } });
     if (ext.roof === 'flat') {
       for (let x = -W / 2; x <= W / 2 + 1e-6; x += 1.2) steel('rafter', 'ตงหลังคา', 'เหล็กรูปพรรณ C 100×50×20×2.3 มม.', P(x, 0.1, -D / 2), P(x, 0.1, D / 2));
+    } else if (ext.roof === 'mansard') {
+      // steep lower slope all round on raking rafters, a flat deck on joists above
+      const k = MANSARD_H / Math.tan((72 * Math.PI) / 180), C = 'เหล็กรูปพรรณ C 125×50×20×3.2 มม. · ทากันสนิม';
+      for (let x = -W / 2 + k; x <= W / 2 - k + 1e-6; x += 1.2) steel('rafter', 'ตงหลังคาดาดฟ้า', C, P(x, MANSARD_H, -D / 2 + k), P(x, MANSARD_H, D / 2 - k));
+      for (const s of [-1, 1]) {
+        for (let x = -W / 2; x <= W / 2 + 1e-6; x += 1.0) steel('rafter', 'จันทันแมนซาร์ด', C, P(x, 0.25, s * D / 2), P(Math.max(-W / 2 + k, Math.min(W / 2 - k, x)), MANSARD_H, s * (D / 2 - k)));
+        for (let z = -D / 2 + 1; z <= D / 2 - 1 + 1e-6; z += 1.0) steel('rafter', 'จันทันแมนซาร์ด', C, P(s * W / 2, 0.25, z), P(s * (W / 2 - k), MANSARD_H, Math.max(-D / 2 + k, Math.min(D / 2 - k, z))));
+        for (const f of [0.35, 0.7]) steel('purlin', 'แป', 'เหล็กกล่อง 50×25×1.2 มม.', P(-W / 2 + k * f, 0.25 + (MANSARD_H - 0.25) * f, s * (D / 2 - k * f)), P(W / 2 - k * f, 0.25 + (MANSARD_H - 0.25) * f, s * (D / 2 - k * f)), 0.05, 0.025);
+      }
     } else {
       const tp = Math.tan((ext.pitch * Math.PI) / 180), o = OVERHANG;
       const X = W / 2 + o, Z = D / 2 + o, e = -o * tp, topY = e + Z * tp;
@@ -518,18 +527,30 @@ function luxurySystems(a: {
     });
   }
 
-  /* solar carport over the motor court, inverter and EV wall box */
+  /* solar: on a flat or mansard roof deck, otherwise a carport over the motor court; inverter and EV wall box */
   const court = house.rooms.find((r) => r.type === 'garage');
-  if (court) {
-    const PW = 1.13, PL = 2.28, nx = Math.floor((court.w - 0.4) / PW), nz = Math.max(1, Math.floor((court.d * 0.5) / PL));
+  const roofKind = house.ext?.roof ?? 'hip';
+  const PW = 1.13, PL = 2.28;
+  let panels = 0;
+  if (plan && (roofKind === 'flat' || roofKind === 'mansard')) {
+    const inset = roofKind === 'mansard' ? 1.2 : 0.8, y = plan.base + (roofKind === 'mansard' ? MANSARD_H + 0.12 : 0.27) + 0.35;
+    const nx = Math.floor((plan.x1 - plan.x0 - 2 * inset) / PW), nz = Math.min(3, Math.floor((plan.z1 - plan.z0 - 2 * inset) / (PL + 0.6)));
+    const cx0 = (plan.x0 + plan.x1) / 2 - (nx * PW) / 2, cz0 = (plan.z0 + plan.z1) / 2 - (nz * (PL + 0.6)) / 2;
+    for (let i = 0; i < nx; i++)
+      for (let j = 0; j < nz && panels < 40; j++, panels++)
+        sys('solar', top, 'แผงโซลาร์เซลล์', 'Mono PERC 550 W · โครงอลูมิเนียมเอียง 10° บนดาดฟ้า', [cx0 + (i + 0.5) * PW, y, cz0 + j * (PL + 0.6) + PL / 2], [PW - 0.03, 0.04, PL - 0.03]);
+  } else if (court) {
+    const nx = Math.floor((court.w - 0.4) / PW), nz = Math.max(1, Math.floor((court.d * 0.5) / PL));
     const cx0 = court.x - (nx * PW) / 2, cz0 = court.z - court.d / 2 + 0.3;
     for (let i = 0; i < nx; i++)
-      for (let j = 0; j < nz; j++)
+      for (let j = 0; j < nz; j++, panels++)
         sys('solar', 0, 'แผงโซลาร์เซลล์', 'Mono PERC 550 W · หลังคาโรงจอดรถ (Solar carport)', [cx0 + (i + 0.5) * PW, 2.75, cz0 + (j + 0.5) * PL], [PW - 0.03, 0.04, PL - 0.03]);
     for (const x of [cx0 + 0.2, cx0 + nx * PW - 0.2])
       for (const z of [cz0 + 0.2, cz0 + nz * PL - 0.2])
         out.push({ layer: 'frame', level: 0, kind: 'column', name: 'เสาโครงโซลาร์คาร์พอร์ต', spec: 'เหล็กกล่อง 150×150×4.5 มม. · ฐานคอนกรีต', box: { p: [x, 1.36, z], s: [0.15, 2.72, 0.15] } });
-    sys('inverter', 0, 'อินเวอร์เตอร์โซลาร์', `Hybrid inverter ${((nx * nz * 550) / 1000).toFixed(1)} kWp · แบตเตอรี่ LFP 15 kWh · On-grid (ขออนุญาตการไฟฟ้า)`, [fp.x1 + 0.15, 1.4, fp.z0 + 1.5], [0.2, 0.7, 0.5]);
+  }
+  if (panels) sys('inverter', 0, 'อินเวอร์เตอร์โซลาร์', `Hybrid inverter ${((panels * 550) / 1000).toFixed(1)} kWp · แบตเตอรี่ LFP 15 kWh · On-grid (ขออนุญาตการไฟฟ้า)`, [fp.x1 + 0.15, 1.4, fp.z0 + 1.5], [0.2, 0.7, 0.5]);
+  if (court) {
     const ev: V3 = [court.x - court.w / 2 + 0.5, 1.2, court.z - court.d / 2 + 0.15];
     sys('ev', 0, 'เครื่องชาร์จรถยนต์ไฟฟ้า (EV Charger)', 'Wall box 7.4 kW Type 2 · มิเตอร์ TOU · RCD Type B', ev, [0.25, 0.4, 0.15]);
     circuits.push({ kind: 'wire-heavy', name: 'วงจร EV Charger', spec: `${wireName} 2×10 + G ตร.มม. · RCBO 40A Type B`, level: 0, devs: [{ p: ev, level: 0, drop: true }] });

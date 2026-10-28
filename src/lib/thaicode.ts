@@ -6,7 +6,7 @@
  * local regulations and the town plan can be stricter.
  */
 import { DEFAULT_SITE, applyStorey, stairSteps, type House, type Room } from '../types';
-import { WALL_T, inRoom, levelY, levelsOf, lotOf, openingsOf, roofPlan, OVERHANG } from './shell';
+import { WALL_T, inRoom, levelY, levelsOf, lotOf, openingsOf, roofPlan, MANSARD_H, roofReach } from './shell';
 import { isExterior, wallSegments } from './walls';
 
 export type Status = 'pass' | 'fail' | 'warn' | 'info';
@@ -83,7 +83,8 @@ export function checkThaiCode(house: House, lookup: CodeLookup): Check[] {
   const ext = house.ext;
   const pitch = ext?.pitch ?? 30;
   let height = plan ? plan.base : levelY(top) + 2.7;
-  if (plan && ext?.roof !== 'flat' && ext?.roof !== 'none') height += (Math.min(plan.x1 - plan.x0, plan.z1 - plan.z0) / 2) * Math.tan((pitch * Math.PI) / 180);
+  if (plan && ext?.roof === 'mansard') height += MANSARD_H + 0.3;
+  else if (plan && ext?.roof !== 'flat' && ext?.roof !== 'none') height += (Math.min(plan.x1 - plan.x0, plan.z1 - plan.z0) / 2) * Math.tan((pitch * Math.PI) / 180);
   if (ext?.roof === 'flat') height += 0.85;
   const need = height > 9 ? 3 : 2;
   out.push({
@@ -147,7 +148,7 @@ export function checkThaiCode(house: House, lookup: CodeLookup): Check[] {
   });
   // eaves count too: the roof overhang must stay inside the plot
   if (plan && ext?.roof !== 'none') {
-    const o = ext?.roof === 'flat' ? 0.3 : OVERHANG;
+    const o = roofReach(ext?.roof ?? 'hip');
     const over = Math.min(plan.x0 - o - lot.x0, lot.x1 - (plan.x1 + o), plan.z0 - o - lot.z0, lot.z1 - (plan.z1 + o));
     out.push({
       group: 'ระยะร่นและที่ว่าง', title: 'ชายคาอยู่ในเขตที่ดิน', status: over >= 0 ? 'pass' : 'fail',
